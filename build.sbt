@@ -4,6 +4,10 @@ ThisBuild / scalaVersion := "3.4.2"
 
 libraryDependencies ++= Seq(
   "com.github.scopt" %% "scopt" % Versions.scopt,
+  "com.lihaoyi" %% "requests" % Versions.requests,
+  "com.lihaoyi" %% "upickle" % Versions.upickle,
+  "com.lihaoyi" %% "ujson" % Versions.upickle,
+  "org.xerial" % "sqlite-jdbc" % Versions.sqlite,
   "org.apache.logging.log4j" % "log4j-slf4j2-impl" % Versions.log4j % Optional,
   "org.scalatest" %% "scalatest" % Versions.scalaTest % Test
 )
