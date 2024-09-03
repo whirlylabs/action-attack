@@ -15,6 +15,7 @@ Below is the usage information when running `./action-attack`
 Usage: action-attack [monitor|review|report] [options]
 
   --help                   Usage information
+  -d, --db <value>         The storage path for the database (default is in-memory)
 Command: monitor [options]
 Monitors open-source GitHub projects for potentially vulnerable applications
   --token <value>          A fine-grained personal access GitHub token

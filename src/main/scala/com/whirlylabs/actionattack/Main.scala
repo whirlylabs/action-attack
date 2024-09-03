@@ -26,7 +26,7 @@ object Main {
       .text("Usage information")
 
     opt[String]('d', "db")
-      .text("The storage path")
+      .text("The storage path for the database (default is in-memory)")
       .validate(x => if Try(Paths.get(x)).isSuccess then success else failure(s"$x is an invalid path"))
       .action((x, c) => c.copy(dbPath = Option(Paths.get(x))))
 

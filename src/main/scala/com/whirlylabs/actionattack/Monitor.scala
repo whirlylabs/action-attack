@@ -30,7 +30,7 @@ class Monitor(private val db: Database, private val ghToken: String) {
   }
 
   private def processHit(item: CodeSearchItem): Unit = try {
-    val CodeSearchItem(CodeSearchRepository(sha, fullName)) = item
+    val CodeSearchItem(sha, CodeSearchRepository(fullName)) = item
     val List(owner, name)                                   = fullName.split('/').toList: @unchecked
     db.queueCommit(owner, name, sha)
   } catch {
