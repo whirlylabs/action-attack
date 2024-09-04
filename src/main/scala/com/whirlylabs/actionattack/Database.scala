@@ -12,8 +12,6 @@ import scala.util.{Try, Using}
 
 class Database(location: Option[Path] = None) extends AutoCloseable {
 
-  // TODO: Create a daemon that runs scans on `commits(scanned=False)`
-
   private val logger = LoggerFactory.getLogger(getClass)
 
   private val url = location match {
@@ -78,8 +76,43 @@ class Database(location: Option[Path] = None) extends AutoCloseable {
     */
   def getNextCommitToScan: Option[Commit] = {
     Using.resource(connection.createStatement()) { stmt =>
-      Using.resource(stmt.executeQuery(s"SELECT * FROM repository WHERE scanned = $FALSE LIMIT 1")) { results =>
+      Using.resource(stmt.executeQuery(s"SELECT * FROM commits WHERE scanned = $FALSE LIMIT 1")) { results =>
         Commit.fromResultSet(results).headOption
+      }
+    }
+  }
+
+  /** @param commit
+    *   the commit object.
+    * @return
+    *   the associated repository if found.
+    */
+  def getRepository(commit: Commit): Option[Repository] = {
+    Using.resource(
+      connection.prepareStatement(
+        "SELECT id, owner, name FROM repository INNER JOIN commits ON repository.id = commits.repository_id WHERE commits.sha = ?"
+      )
+    ) { stmt =>
+      stmt.setString(1, commit.sha)
+      Using.resource(stmt.executeQuery())(Repository.fromResultSet).headOption
+    }
+  }
+
+  /** Store results from a scan.
+    * @param commit
+    *   the commit that has been scanned.
+    * @param results
+    *   the finding descriptions.
+    */
+  def storeResults(commit: Commit, results: List[String]): Unit = {
+    results.foreach { description =>
+      Using.resource(
+        connection.prepareStatement("INSERT INTO finding(commit_sha, description, valid) VALUES(?, ?, ?)")
+      ) { stmt =>
+        stmt.setString(1, commit.sha)
+        stmt.setString(2, description)
+        stmt.setBoolean(3, false)
+        stmt.execute()
       }
     }
   }
@@ -134,6 +167,8 @@ case class Repository(id: Int, owner: String, name: String) {
     *   the GitHub URL to the repository.
     */
   def toUrl: URL = URI(s"https://github.com/$owner/$name").toURL
+
+  override def toString: String = s"$owner/$name"
 
 }
 
