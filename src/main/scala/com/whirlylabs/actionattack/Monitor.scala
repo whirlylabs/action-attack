@@ -19,8 +19,8 @@ class Monitor(private val db: Database, private val ghToken: String) {
     while (true) {
       getRepos match {
         case Success(response) =>
+          logger.info(s"Received ${response.items.size} hits")
           response.items.foreach(processHit)
-          println(response)
         case Failure(exception) => logger.error("Error while attempting a GitHub code search", exception)
       }
       // Respect GitHub's rate limit of 5000 requests per hour for authenticated requests

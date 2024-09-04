@@ -10,7 +10,6 @@ class ActionAttack(config: Config) {
   private val logger = LoggerFactory.getLogger(getClass)
 
   def run(): Unit = Using.resource(Database()) { db =>
-    logger.info("Hello, world!")
     config.mode match {
       case OperatingMode.Monitor => config.ghToken.foreach(Monitor(db, _).start())
       case OperatingMode.Review  => logger.warn("Unimplemented")
