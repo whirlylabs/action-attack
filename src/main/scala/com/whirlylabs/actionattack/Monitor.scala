@@ -81,7 +81,7 @@ object Monitor {
     "github.head_ref"
   )
 
-  private def getRepos(source: String, token: String): Try[CodeSearchResponse] = Try {
+  private def getRepos(source: String, token: String, page: Int = 1): Try[CodeSearchResponse] = Try {
     val response = requests.get(
       "https://api.github.com/search/code",
       headers = Map(
@@ -89,10 +89,11 @@ object Monitor {
         "Authorization"        -> s"Bearer $token",
         "X-GitHub-Api-Version" -> "2022-11-28"
       ),
-      params = Map("q" -> Monitor.actionsQuery(source))
+      params = Map("q" -> Monitor.actionsQuery(source), "page" -> page.toString, "per_page" -> "100")
     )
     read[CodeSearchResponse](response.text())
     // TODO: We need to paginate otherwise we'll get top 30 every time.
+
   }
 
   case class CodeSearchResponse(
