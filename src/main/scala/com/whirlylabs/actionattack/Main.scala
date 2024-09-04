@@ -3,7 +3,7 @@ package com.whirlylabs.actionattack
 import org.slf4j.LoggerFactory
 import scopt.OptionParser
 
-import java.nio.file.{Files, Path, Paths}
+import java.nio.file.{Path, Paths}
 import scala.util.Try
 
 object Main {
@@ -35,8 +35,7 @@ object Main {
       .action((_, c) => c.copy(mode = OperatingMode.Monitor))
       .children(
         opt[String]("token")
-          .text("A fine-grained personal access GitHub token")
-          .required()
+          .text("A fine-grained personal access GitHub token (will alternatively look for token under `.env`)")
           .action((x, c) => c.copy(ghToken = Option(x)))
       )
 
