@@ -39,9 +39,10 @@ class Monitor(private val db: Database, private val ghToken: String) {
   }
 
   private def processHit(item: CodeSearchItem): Unit = try {
-    val CodeSearchItem(sha, CodeSearchRepository(fullName)) = item
+    val CodeSearchItem(_, CodeSearchRepository(fullName)) = item
+    val commitSha = item.commitHash
     val List(owner, name)                                   = fullName.split('/').toList: @unchecked
-    db.queueCommit(owner, name, sha)
+    db.queueCommit(owner, name, commitSha)
   } catch {
     case e: Exception => logger.error(s"Error occurred while processing $item", e)
   }
@@ -101,7 +102,9 @@ object Monitor {
     items: List[CodeSearchItem]
   ) derives ReadWriter
 
-  case class CodeSearchItem(sha: String, repository: CodeSearchRepository) derives ReadWriter
+  case class CodeSearchItem(url: String, repository: CodeSearchRepository) derives ReadWriter {
+    def commitHash: String = url.split('=').last
+  }
 
   case class CodeSearchRepository(@upickle.implicits.key("full_name") fullName: String) derives ReadWriter
 
