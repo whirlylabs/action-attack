@@ -30,7 +30,13 @@ class ActionAttack(config: Config) {
             sys.exit(1)
         }
       case OperatingMode.Review => logger.warn("Unimplemented")
-      case OperatingMode.Report => Report(db).generateFindings()
+      case OperatingMode.Report =>
+        if (config.dbPath.isEmpty) {
+          logger.error("Database path not set, no results to generate a report from")
+          sys.exit(1)
+        } else {
+          Report(db).generateFindings()
+        }
     }
   }
 
