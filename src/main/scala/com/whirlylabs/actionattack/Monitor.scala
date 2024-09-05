@@ -9,8 +9,8 @@ import scala.util.{Failure, Success, Try}
 
 class Monitor(private val db: Database, private val ghToken: String) {
 
-  private val logger          = LoggerFactory.getLogger(getClass)
-  private val scanner         = Scanner(db)
+  private val logger         = LoggerFactory.getLogger(getClass)
+  private val scanner        = Scanner(db)
   private val requestCounter = new VariableCounter;
 
   sys.addShutdownHook {
@@ -27,8 +27,7 @@ class Monitor(private val db: Database, private val ghToken: String) {
       Monitor.ghActionsSources.foreach { source =>
         Monitor.getRepos(source, ghToken, requestCounter) match {
           case Success(response) =>
-            logger.info(s"Finished Batch for: $source")
-            logger.info(s"Current num requests: ${requestCounter.currentValue}")
+            logger.info(s"Finished fetching repos for source: $source")
             response.flatMap(_.items).foreach(processHit)
           case Failure(exception) => logger.error("Error while attempting a GitHub code search", exception)
         }
@@ -41,9 +40,10 @@ class Monitor(private val db: Database, private val ghToken: String) {
   }
 
   private def processHit(item: CodeSearchItem): Unit = try {
-    val CodeSearchItem(sha, CodeSearchRepository(fullName)) = item
-    val List(owner, name)                                   = fullName.split('/').toList: @unchecked
-    db.queueCommit(owner, name, sha)
+    val CodeSearchItem(_, CodeSearchRepository(fullName)) = item
+    val commitSha                                         = item.commitHash
+    val List(owner, name)                                 = fullName.split('/').toList: @unchecked
+    db.queueCommit(owner, name, commitSha)
   } catch {
     case e: Exception => logger.error(s"Error occurred while processing $item", e)
   }
@@ -73,12 +73,12 @@ object Monitor {
     "github.event.comment.body",
     "github.event.review.body",
     "github.event.pages .page_name",
-    "github.event.commits.*.message",
+    "github.event.commits .message",
     "github.event.head_commit.message",
     "github.event.head_commit.author.email",
     "github.event.head_commit.author.name",
-    "github.event.commits.*.author.email",
-    "github.event.commits.*.author.name",
+    "github.event.commits .author.email",
+    "github.event.commits .author.name",
     "github.event.pull_request.head.ref",
     "github.event.pull_request.head.label",
     "github.event.pull_request.head.repo.default_branch",
@@ -86,10 +86,10 @@ object Monitor {
   )
 
   private def getRepos(
-                        source: String,
-                        token: String,
-                        requestCounter: VariableCounter,
-                        page: Int = 1
+    source: String,
+    token: String,
+    requestCounter: VariableCounter,
+    page: Int = 1
   ): Try[List[CodeSearchResponse]] = Try {
     if requestCounter.next % 10 == 0 then Thread.sleep(60)
 
@@ -109,10 +109,10 @@ object Monitor {
   }
 
   private def paginateRepos(
-                             source: String,
-                             token: String,
-                             requestCounter: VariableCounter,
-                             page: Int
+    source: String,
+    token: String,
+    requestCounter: VariableCounter,
+    page: Int
   ): List[CodeSearchResponse] = {
     if requestCounter.next % 10 == 0 then Thread.sleep(60 * 1000)
 
@@ -139,7 +139,9 @@ object Monitor {
     items: List[CodeSearchItem]
   ) derives ReadWriter
 
-  case class CodeSearchItem(sha: String, repository: CodeSearchRepository) derives ReadWriter
+  case class CodeSearchItem(url: String, repository: CodeSearchRepository) derives ReadWriter {
+    def commitHash: String = url.split('=').last
+  }
 
   case class CodeSearchRepository(@upickle.implicits.key("full_name") fullName: String) derives ReadWriter
 
