@@ -9,8 +9,9 @@ import scala.util.{Failure, Success, Try}
 
 class Monitor(private val db: Database, private val ghToken: String) {
 
-  private val logger  = LoggerFactory.getLogger(getClass)
-  private val scanner = Scanner(db)
+  private val logger         = LoggerFactory.getLogger(getClass)
+  private val scanner        = Scanner(db)
+  private val requestCounter = new VariableCounter;
 
   sys.addShutdownHook {
     scanner.close()
@@ -18,22 +19,24 @@ class Monitor(private val db: Database, private val ghToken: String) {
 
   def start(): Unit = {
     Thread(scanner).start()
-    val totalRequestsPerHour     = 5000
-    val secondsPerHour           = 3600
-    val sleepTimeBetweenRequests = secondsPerHour.toDouble / totalRequestsPerHour.toDouble
+    // Code Search API is 10 requests per minute
+    val sleepTimeBetweenRequestsSeconds = 60
 
     logger.info("Monitoring GitHub for potentially vulnerable repositories...")
     while (true) {
       Monitor.ghActionsSources.foreach { source =>
-        Monitor.getRepos(source, ghToken) match {
+        Monitor.getRepos(source, ghToken, requestCounter) match {
           case Success(response) =>
-            logger.info(s"Received ${response.items.size} hits")
-            response.items.foreach(processHit)
+            val responseItems = response.flatMap(_.items)
+            logger.info(s"Received ${responseItems.size} hits for: $source")
+
+            responseItems.foreach(processHit)
           case Failure(exception) => logger.error("Error while attempting a GitHub code search", exception)
         }
-        // Respect GitHub's rate limit of 5000 requests per hour for authenticated requests
+
+        // Respect GitHub's rate limit of 10 requests per minute for code search
         // https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api?apiVersion=2022-11-28
-        Thread.sleep(1000000)
+        if requestCounter.next % 10 == 0 then Thread.sleep((sleepTimeBetweenRequestsSeconds * 1000).toLong)
       }
     }
   }
@@ -50,6 +53,8 @@ class Monitor(private val db: Database, private val ghToken: String) {
 }
 
 object Monitor {
+  private val logger                     = LoggerFactory.getLogger(getClass)
+  private val resultBuffer: List[String] = List.empty
 
   /** Generates a code search query. There is <a href="https://github.com/orgs/community/discussions/112338">no regex
     * via search API</a>. :(
@@ -82,7 +87,14 @@ object Monitor {
     "github.head_ref"
   )
 
-  private def getRepos(source: String, token: String): Try[CodeSearchResponse] = Try {
+  private def getRepos(
+    source: String,
+    token: String,
+    requestCounter: VariableCounter,
+    page: Int = 1
+  ): Try[List[CodeSearchResponse]] = Try {
+    if requestCounter.next % 10 == 0 then Thread.sleep(60 * 1000)
+
     val response = requests.get(
       "https://api.github.com/search/code",
       headers = Map(
@@ -90,10 +102,37 @@ object Monitor {
         "Authorization"        -> s"Bearer $token",
         "X-GitHub-Api-Version" -> "2022-11-28"
       ),
-      params = Map("q" -> Monitor.actionsQuery(source))
+      params = Map("q" -> Monitor.actionsQuery(source), "page" -> page.toString, "per_page" -> "100")
     )
-    read[CodeSearchResponse](response.text())
-    // TODO: We need to paginate otherwise we'll get top 30 every time.
+
+    val initialResponse = read[CodeSearchResponse](response.text())
+    if initialResponse.incompleteResults then initialResponse :: Nil
+    else initialResponse :: paginateRepos(source, token, requestCounter, page + 1)
+  }
+
+  private def paginateRepos(
+    source: String,
+    token: String,
+    requestCounter: VariableCounter,
+    page: Int
+  ): List[CodeSearchResponse] = {
+    if requestCounter.next % 10 == 0 then Thread.sleep(60 * 1000)
+
+    val response = requests.get(
+      "https://api.github.com/search/code",
+      headers = Map(
+        "Accept"               -> "application/vnd.github+json",
+        "Authorization"        -> s"Bearer $token",
+        "X-GitHub-Api-Version" -> "2022-11-28"
+      ),
+      params = Map("q" -> Monitor.actionsQuery(source), "page" -> page.toString, "per_page" -> "100")
+    )
+
+    val responseText = read[CodeSearchResponse](response.text())
+
+    // Can only access 1000 search results, so on page 10 we also need to break out of pagination
+    if responseText.incompleteResults || page == 10 then responseText :: Nil
+    else responseText :: paginateRepos(source, token, requestCounter, page + 1)
   }
 
   case class CodeSearchResponse(
