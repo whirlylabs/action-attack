@@ -33,7 +33,7 @@ class Monitor(private val db: Database, private val ghToken: String) {
         }
         // Respect GitHub's rate limit of 5000 requests per hour for authenticated requests
         // https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api?apiVersion=2022-11-28
-        Thread.sleep((sleepTimeBetweenRequests * 1000).toLong)
+        Thread.sleep(1000000)
       }
     }
   }

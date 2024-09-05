@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory
 import java.io.File
 import java.nio.file.{Files, Path}
 import scala.util.{Failure, Success, Try}
+import upickle.default.*
 
 class Scanner(db: Database) extends Runnable, AutoCloseable {
 
@@ -23,13 +24,15 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
               try {
                 val findings = runScan(repoPath)
                 db.storeResults(commit, findings)
+              } catch {
+                case e: Exception =>
+                  logger.error("Exception occurred while running scan & storing results", e)
               } finally {
-                repoPath.delete
+                repoPath.delete()
               }
             case Failure(exception) =>
               logger.error(s"Unable to clone $repository:${commit.sha}", exception)
           }
-
         }
       }
       // Avoid overburdening the database
@@ -62,31 +65,34 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
     targetDir
   }
 
-  private def runScan(repositoryPath: Path): List[String] = {
+  private def runScan(repositoryPath: Path): List[Finding] = {
     // Run scan with octoscan with suggested config
     val args = Seq(
       "octoscan",
       "scan",
-      repositoryPath.toAbsolutePath.toString,
+      ".",
       "--disable-rules",
       "shellcheck,local-action",
       "--filter-triggers",
       "external",
-      "--oneline"
+      "--json"
     )
     logger.debug(s"Running scan with $args")
-    val pb      = ProcessBuilder(args*)
+    val pb      = ProcessBuilder(args*).directory(repositoryPath.toFile)
     val process = pb.startBlocking
     val result  = new String(process.getInputStream.readAllBytes())
     logger.debug(s"Scan complete with exit code ${process.exitValue()}")
-    if (process.exitValue() != 2 && !result.isBlank) {
+    val findings = read[List[Finding]](result)
+    if (process.exitValue() == 0) {
+      // This means no findings
+      Nil
+    } else if (process.exitValue() != 2) {
+      // This means error
       logger.error(result)
       Nil
-    } else if (result.isBlank) {
-      Nil
     } else {
-      val lines = result.split("\n").map(_.trim).toList
-      lines
+      logger.info(s"Scan resulted in ${findings.size} findings")
+      findings
     }
   }
 
@@ -116,7 +122,7 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
       * @return
       *   the process once it's complete
       */
-    def delete: Unit = deleteFileOrDir(pb.toFile)
+    def delete(): Unit = deleteFileOrDir(pb.toFile)
 
     private def deleteFileOrDir(file: File): Unit = {
       Option(file.listFiles).foreach { contents =>
