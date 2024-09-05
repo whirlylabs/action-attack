@@ -3,6 +3,7 @@ ThisBuild / organization := "com.whirlylabs"
 ThisBuild / scalaVersion := "3.4.2"
 
 libraryDependencies ++= Seq(
+  "org.jsoup" % "jsoup" % Versions.jsoup,
   "com.github.scopt" %% "scopt" % Versions.scopt,
   "com.lihaoyi" %% "requests" % Versions.requests,
   "com.lihaoyi" %% "upickle" % Versions.upickle,

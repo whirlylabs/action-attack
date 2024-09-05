@@ -30,7 +30,7 @@ class ActionAttack(config: Config) {
             sys.exit(1)
         }
       case OperatingMode.Review => logger.warn("Unimplemented")
-      case OperatingMode.Report => logger.warn("Unimplemented")
+      case OperatingMode.Report => Report(db).generateFindings()
     }
   }
 

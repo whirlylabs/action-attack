@@ -138,6 +138,56 @@ class Database(location: Option[Path] = None) extends AutoCloseable {
     }
   }
 
+  /**
+   * @return all repositories linked to validated and vulnerable commits.
+   */
+  private def getRepositoriesWithValidatedAndVulnerableCommits: List[Repository] = {
+    Using.resource(connection.prepareStatement("SELECT * FROM repository INNER JOIN commits ON repository.id = commits.repository_id INNER JOIN finding ON finding.commit_sha = commits.sha WHERE commits.validated = ? AND finding.valid = ?")) { stmt =>
+      stmt.setBoolean(1, true)
+      stmt.setBoolean(2, true)
+      Using.resource(stmt.executeQuery())(Repository.fromResultSet)
+    }
+  }
+
+  /**
+   * @return all commits linked to validated and vulnerable findings for the given repository.
+   */
+  private def getCommitsWithValidatedAndVulnerableFindings(repository: Repository): List[Commit] = {
+    Using.resource(connection.prepareStatement("SELECT * FROM repository INNER JOIN commits ON repository.id = commits.repository_id INNER JOIN finding ON finding.commit_sha = commits.sha WHERE repository.id = ? AND commits.validated = ? AND finding.valid = ?")) { stmt =>
+      stmt.setInt(1, repository.id)
+      stmt.setBoolean(2, true)
+      stmt.setBoolean(3, true)
+      Using.resource(stmt.executeQuery())(Commit.fromResultSet)
+    }
+  }
+
+  /**
+   * @return all commits linked to validated and vulnerable findings for the given repository.
+   */
+  private def getVulnerableFindings(commit: Commit): List[Finding] = {
+    if (!commit.validated) {
+      logger.warn(s"${commit.sha} with repository ID ${commit.repositoryId} has not been validated, returning empty result...")
+      Nil
+    } else {
+      Using.resource(connection.prepareStatement("SELECT * FROM finding INNER JOIN commits ON finding.commit_sha  = commits.repository_id WHERE finding.valid = ?")) { stmt =>
+        stmt.setBoolean(1, true)
+        Using.resource(stmt.executeQuery())(Finding.fromResultSet)
+      }
+    }
+  }
+
+  /**
+   * @return all validated findings that are true positives, mapped by their repository and commit.
+   */
+  def getValidatedFindingsForReport: Map[Repository, Map[Commit, List[Finding]]] = {
+    // Is there a more efficient way to do this? Possibly...
+    getRepositoriesWithValidatedAndVulnerableCommits.map { repository =>
+      repository -> getCommitsWithValidatedAndVulnerableFindings(repository).map { commit =>
+        commit -> getVulnerableFindings(commit)
+      }.toMap
+    }.toMap
+  }
+
   private def createRepoIfNotExists(owner: String, name: String): Try[Int] = Try {
     Using.resource(connection.prepareStatement("INSERT OR IGNORE INTO repository(owner, name) VALUES(?, ?)")) { stmt =>
       stmt.setString(1, owner)
