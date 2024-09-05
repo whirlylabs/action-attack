@@ -1,4 +1,5 @@
 object Versions {
+  val jsoup = "1.18.1"
   val log4j = "2.23.1"
   val scopt = "4.1.0"
   val scalaTest = "3.2.18"

@@ -107,18 +107,18 @@ class Database(location: Option[Path] = None) extends AutoCloseable {
   def storeResults(commit: Commit, results: List[Finding]): Unit = {
     results.foreach { case Finding(_, _, _, message, filepath, line, column, columnEnd, snippet, kind) =>
       Using.resource(connection.prepareStatement("""
-            |INSERT INTO finding(
-            | commit_sha,
-            | valid,
-            | message,
-            | filepath,
-            | line,
-            | column,
-            | column_end,
-            | snippet,
-            | kind
-            |) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);
-            |""".stripMargin)) { stmt =>
+          |INSERT INTO finding(
+          | commit_sha,
+          | valid,
+          | message,
+          | filepath,
+          | line,
+          | column,
+          | column_end,
+          | snippet,
+          | kind
+          |) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);
+          |""".stripMargin)) { stmt =>
         stmt.setString(1, commit.sha)
         stmt.setBoolean(2, false)
         stmt.setString(3, message)
@@ -136,6 +136,71 @@ class Database(location: Option[Path] = None) extends AutoCloseable {
       stmt.setString(2, commit.sha)
       stmt.execute()
     }
+  }
+
+  /** @return
+    *   all repositories linked to validated and vulnerable commits.
+    */
+  private def getRepositoriesWithValidatedAndVulnerableCommits: List[Repository] = {
+    Using.resource(
+      connection.prepareStatement(
+        "SELECT * FROM repository INNER JOIN commits ON repository.id = commits.repository_id INNER JOIN finding ON finding.commit_sha = commits.sha WHERE commits.validated = ? AND finding.valid = ?"
+      )
+    ) { stmt =>
+      stmt.setBoolean(1, true)
+      stmt.setBoolean(2, true)
+      Using.resource(stmt.executeQuery())(Repository.fromResultSet)
+    }
+  }
+
+  /** @return
+    *   all commits linked to validated and vulnerable findings for the given repository.
+    */
+  private def getCommitsWithValidatedAndVulnerableFindings(repository: Repository): List[Commit] = {
+    Using.resource(
+      connection.prepareStatement(
+        "SELECT * FROM repository INNER JOIN commits ON repository.id = commits.repository_id INNER JOIN finding ON finding.commit_sha = commits.sha WHERE repository.id = ? AND commits.validated = ? AND finding.valid = ?"
+      )
+    ) { stmt =>
+      stmt.setInt(1, repository.id)
+      stmt.setBoolean(2, true)
+      stmt.setBoolean(3, true)
+      Using.resource(stmt.executeQuery())(Commit.fromResultSet)
+    }
+  }
+
+  /** @return
+    *   all commits linked to validated and vulnerable findings for the given repository.
+    */
+  private def getVulnerableFindings(commit: Commit): List[Finding] = {
+    if (!commit.validated) {
+      logger.warn(
+        s"${commit.sha} with repository ID ${commit.repositoryId} has not been validated, returning empty result..."
+      )
+      Nil
+    } else {
+      Using.resource(
+        connection.prepareStatement(
+          "SELECT * FROM finding INNER JOIN commits ON finding.commit_sha = commits.sha WHERE finding.valid = ? AND commits.sha = ?"
+        )
+      ) { stmt =>
+        stmt.setBoolean(1, true)
+        stmt.setString(2, commit.sha)
+        Using.resource(stmt.executeQuery())(Finding.fromResultSet)
+      }
+    }
+  }
+
+  /** @return
+    *   all validated findings that are true positives, mapped by their repository and commit.
+    */
+  def getValidatedFindingsForReport: Map[Repository, Map[Commit, List[Finding]]] = {
+    // Is there a more efficient way to do this? Possibly...
+    getRepositoriesWithValidatedAndVulnerableCommits.map { repository =>
+      repository -> getCommitsWithValidatedAndVulnerableFindings(repository).map { commit =>
+        commit -> getVulnerableFindings(commit)
+      }.toMap
+    }.toMap
   }
 
   private def createRepoIfNotExists(owner: String, name: String): Try[Int] = Try {
@@ -240,7 +305,7 @@ object Repository {
     while (rs.next()) {
       xs.addOne(Repository(id = rs.getInt("id"), owner = rs.getString("owner"), name = rs.getString("name")))
     }
-    xs.toList
+    xs.distinctBy(_.id).toList
   }
 
 }
