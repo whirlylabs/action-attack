@@ -27,8 +27,10 @@ class Monitor(private val db: Database, private val ghToken: String) {
       Monitor.ghActionsSources.foreach { source =>
         Monitor.getRepos(source, ghToken, requestCounter) match {
           case Success(response) =>
-            logger.info(s"Finished fetching repos for source: $source")
-            response.flatMap(_.items).foreach(processHit)
+            val responseItems = response.flatMap(_.items)
+            logger.info(s"Received ${responseItems.size} hits for: $source")
+
+            responseItems.foreach(processHit)
           case Failure(exception) => logger.error("Error while attempting a GitHub code search", exception)
         }
 
