@@ -15,7 +15,7 @@
     </Appenders>
     <Loggers>
         <Logger name="com.whirlylabs" level="info" />
-        <Root level="INFO">
+        <Root level="DEBUG">
             <AppenderRef ref="stdout" />
             <AppenderRef ref="stderr" />
         </Root>
