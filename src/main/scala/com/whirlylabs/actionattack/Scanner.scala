@@ -24,7 +24,7 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
                 val findings = runScan(repoPath)
                 db.storeResults(commit, findings)
               } finally {
-                repoPath.delete()
+                repoPath.delete
               }
             case Failure(exception) =>
               logger.error(s"Unable to clone $repository:${commit.sha}", exception)
@@ -39,40 +39,22 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
 
   private def cloneRepo(repository: Repository, commit: Commit): Try[Path] = Try {
     val targetDir = Files.createTempDirectory("action-attack-")
-    val repoUrl = repository.toUrl
-    val cloneCmd = Seq(
-      "git",
-      "clone",
-      repoUrl.toString,
-      targetDir.toAbsolutePath.toString,
-      "--depth",
-      "1",
-    )
+    val repoUrl   = repository.toUrl
+    val cloneCmd  = Seq("git", "clone", repoUrl.toString, targetDir.toAbsolutePath.toString, "--depth", "1")
     logger.debug(s"Cloning repository with '${cloneCmd.mkString(" ")}")
-    val cloneProcess = ProcessBuilder(cloneCmd *).startBlocking
+    val cloneProcess = ProcessBuilder(cloneCmd*).startBlocking
     if (cloneProcess.exitValue() != 0) {
       val msg = new String(cloneProcess.getErrorStream.readAllBytes())
       throw new RuntimeException(s"Error occurred while cloning repository! Details: $msg")
     }
-    val fetchCmd = Seq(
-      "git",
-      "fetch",
-      "--depth",
-      "1",
-      "origin",
-      commit.sha,
-    )
-    val fetchProcess = ProcessBuilder(fetchCmd *).directory(targetDir.toFile).startBlocking
+    val fetchCmd     = Seq("git", "fetch", "--depth", "1", "origin", commit.sha)
+    val fetchProcess = ProcessBuilder(fetchCmd*).directory(targetDir.toFile).startBlocking
     if (fetchProcess.exitValue() != 0) {
       val msg = new String(fetchProcess.getErrorStream.readAllBytes())
       throw new RuntimeException(s"Error occurred while fetching the target commit! Details: $msg")
     }
-    val checkoutCmd = Seq(
-      "git",
-      "checkout",
-      commit.sha
-    )
-    val checkoutProcess = ProcessBuilder(checkoutCmd *).directory(targetDir.toFile).startBlocking
+    val checkoutCmd     = Seq("git", "checkout", commit.sha)
+    val checkoutProcess = ProcessBuilder(checkoutCmd*).directory(targetDir.toFile).startBlocking
     if (checkoutProcess.exitValue() != 0) {
       val msg = new String(checkoutProcess.getErrorStream.readAllBytes())
       throw new RuntimeException(s"Error occurred while checking out to the target commit! Details: $msg")
@@ -89,12 +71,13 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
       "--disable-rules",
       "shellcheck,local-action",
       "--filter-triggers",
-      "external"
+      "external",
+      "--oneline"
     )
     logger.debug(s"Running scan with $args")
-    val pb = ProcessBuilder(args *)
+    val pb      = ProcessBuilder(args*)
     val process = pb.startBlocking
-    val result = new String(process.getInputStream.readAllBytes())
+    val result  = new String(process.getInputStream.readAllBytes())
     logger.debug(s"Scan complete with exit code ${process.exitValue()}")
     if (process.exitValue() != 2 && !result.isBlank) {
       logger.error(result)
@@ -102,10 +85,8 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
     } else if (result.isBlank) {
       Nil
     } else {
-      // TODO: Some findings don't have a code snippet (2 lines) some do (4 lines)
-      val lines = result.split("\n").map(_.trim)
-      val findings = lines.grouped(4).map(_.mkString("\n")).toList
-      findings
+      val lines = result.split("\n").map(_.trim).toList
+      lines
     }
   }
 
@@ -116,10 +97,10 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
 
   implicit class ProcessExt(pb: ProcessBuilder) {
 
-    /**
-     * A version of [[ProcessBuilder.start]] that is blocking
-     * @return the process once it's complete
-     */
+    /** A version of [[ProcessBuilder.start]] that is blocking
+      * @return
+      *   the process once it's complete
+      */
     def startBlocking: Process = {
       val p = pb.start()
       while (p.isAlive) { Thread.sleep(100) }
@@ -130,11 +111,11 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
 
   implicit class PathExt(pb: Path) {
 
-    /**
-     * A version of [[ProcessBuilder.start]] that is blocking
-     *
-     * @return the process once it's complete
-     */
+    /** A version of [[ProcessBuilder.start]] that is blocking
+      *
+      * @return
+      *   the process once it's complete
+      */
     def delete: Unit = deleteFileOrDir(pb.toFile)
 
     private def deleteFileOrDir(file: File): Unit = {
