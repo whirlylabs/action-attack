@@ -107,18 +107,18 @@ class Database(location: Option[Path] = None) extends AutoCloseable {
   def storeResults(commit: Commit, results: List[Finding]): Unit = {
     results.foreach { case Finding(_, _, _, message, filepath, line, column, columnEnd, snippet, kind) =>
       Using.resource(connection.prepareStatement("""
-            |INSERT INTO finding(
-            | commit_sha,
-            | valid,
-            | message,
-            | filepath,
-            | line,
-            | column,
-            | column_end,
-            | snippet,
-            | kind
-            |) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);
-            |""".stripMargin)) { stmt =>
+          |INSERT INTO finding(
+          | commit_sha,
+          | valid,
+          | message,
+          | filepath,
+          | line,
+          | column,
+          | column_end,
+          | snippet,
+          | kind
+          |) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);
+          |""".stripMargin)) { stmt =>
         stmt.setString(1, commit.sha)
         stmt.setBoolean(2, false)
         stmt.setString(3, message)
@@ -173,7 +173,7 @@ class Database(location: Option[Path] = None) extends AutoCloseable {
     *   all commits linked to validated and vulnerable findings for the given repository.
     */
   private def getVulnerableFindings(commit: Commit): List[Finding] = {
-    if (commit.validated) {
+    if (!commit.validated) {
       logger.warn(
         s"${commit.sha} with repository ID ${commit.repositoryId} has not been validated, returning empty result..."
       )
@@ -181,10 +181,11 @@ class Database(location: Option[Path] = None) extends AutoCloseable {
     } else {
       Using.resource(
         connection.prepareStatement(
-          "SELECT * FROM finding INNER JOIN commits ON finding.commit_sha  = commits.sha WHERE finding.valid = ?"
+          "SELECT * FROM finding INNER JOIN commits ON finding.commit_sha = commits.sha WHERE finding.valid = ? AND commits.sha = ?"
         )
       ) { stmt =>
         stmt.setBoolean(1, true)
+        stmt.setString(2, commit.sha)
         Using.resource(stmt.executeQuery())(Finding.fromResultSet)
       }
     }
