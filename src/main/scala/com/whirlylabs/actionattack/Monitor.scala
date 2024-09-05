@@ -40,8 +40,8 @@ class Monitor(private val db: Database, private val ghToken: String) {
 
   private def processHit(item: CodeSearchItem): Unit = try {
     val CodeSearchItem(_, CodeSearchRepository(fullName)) = item
-    val commitSha = item.commitHash
-    val List(owner, name)                                   = fullName.split('/').toList: @unchecked
+    val commitSha                                         = item.commitHash
+    val List(owner, name)                                 = fullName.split('/').toList: @unchecked
     db.queueCommit(owner, name, commitSha)
   } catch {
     case e: Exception => logger.error(s"Error occurred while processing $item", e)

@@ -113,9 +113,7 @@ class Database(location: Option[Path] = None) extends AutoCloseable {
         stmt.execute()
       }
     }
-    Using.resource(
-      connection.prepareStatement("UPDATE commits SET scanned = ? WHERE sha = ?")
-    ) { stmt =>
+    Using.resource(connection.prepareStatement("UPDATE commits SET scanned = ? WHERE sha = ?")) { stmt =>
       stmt.setBoolean(1, true)
       stmt.setString(2, commit.sha)
       stmt.execute()
@@ -217,12 +215,14 @@ object Commit {
   def fromResultSet(rs: ResultSet): List[Commit] = {
     val xs = mutable.ListBuffer.empty[Commit]
     while (rs.next()) {
-      xs.addOne(Commit(
-        sha = rs.getString("sha"),
-        scanned = rs.getBoolean("sha"),
-        validated = rs.getBoolean("validated"),
-        repositoryId = rs.getInt("repository_id")
-      ))
+      xs.addOne(
+        Commit(
+          sha = rs.getString("sha"),
+          scanned = rs.getBoolean("sha"),
+          validated = rs.getBoolean("validated"),
+          repositoryId = rs.getInt("repository_id")
+        )
+      )
     }
     xs.toList
   }
@@ -234,12 +234,14 @@ object Finding {
   def fromResultSet(rs: ResultSet): List[Finding] = {
     val xs = mutable.ListBuffer.empty[Finding]
     while (rs.next()) {
-      xs.addOne(Finding(
-        id = rs.getInt("id"),
-        commitSha = rs.getString("commit_sha"),
-        description = rs.getString("description"),
-        valid = rs.getBoolean("valid")
-      ))
+      xs.addOne(
+        Finding(
+          id = rs.getInt("id"),
+          commitSha = rs.getString("commit_sha"),
+          description = rs.getString("description"),
+          valid = rs.getBoolean("valid")
+        )
+      )
     }
     xs.toList
   }
