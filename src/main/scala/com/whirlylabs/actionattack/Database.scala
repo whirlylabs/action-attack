@@ -8,6 +8,7 @@ import scala.collection.mutable
 import scala.compiletime.uninitialized
 import java.net.{URI, URL}
 import scala.util.{Try, Using}
+import upickle.default.*
 
 class Database(location: Option[Path] = None) extends AutoCloseable {
 
@@ -97,19 +98,36 @@ class Database(location: Option[Path] = None) extends AutoCloseable {
   }
 
   /** Store results from a scan.
+    *
     * @param commit
     *   the commit that has been scanned.
     * @param results
     *   the finding descriptions.
     */
-  def storeResults(commit: Commit, results: List[String]): Unit = {
-    results.foreach { description =>
-      Using.resource(
-        connection.prepareStatement("INSERT INTO finding(commit_sha, description, valid) VALUES(?, ?, ?)")
-      ) { stmt =>
+  def storeResults(commit: Commit, results: List[Finding]): Unit = {
+    results.foreach { case Finding(_, _, _, message, filepath, line, column, columnEnd, snippet, kind) =>
+      Using.resource(connection.prepareStatement("""
+            |INSERT INTO finding(
+            | commit_sha,
+            | valid,
+            | message,
+            | filepath,
+            | line,
+            | column,
+            | column_end,
+            | snippet,
+            | kind
+            |) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);
+            |""".stripMargin)) { stmt =>
         stmt.setString(1, commit.sha)
-        stmt.setString(2, description)
-        stmt.setBoolean(3, false)
+        stmt.setBoolean(2, false)
+        stmt.setString(3, message)
+        stmt.setString(4, filepath)
+        stmt.setInt(5, line)
+        stmt.setInt(6, column)
+        stmt.setInt(7, columnEnd)
+        stmt.setString(8, snippet.orNull)
+        stmt.setString(9, kind)
         stmt.execute()
       }
     }
@@ -147,7 +165,7 @@ object Database {
   val schema: List[String] = List(
     "CREATE TABLE IF NOT EXISTS repository (id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT, name TEXT, UNIQUE(owner, name))",
     "CREATE TABLE IF NOT EXISTS commits (sha TEXT PRIMARY KEY, scanned BOOLEAN, validated BOOLEAN, repository_id INTEGER, FOREIGN KEY(repository_id) REFERENCES repository(id))",
-    "CREATE TABLE IF NOT EXISTS finding (id INTEGER PRIMARY KEY AUTOINCREMENT, commit_sha TEXT, description TEXT, valid BOOLEAN, FOREIGN KEY(commit_sha) REFERENCES commits(commit_sha))"
+    "CREATE TABLE IF NOT EXISTS finding (id INTEGER PRIMARY KEY AUTOINCREMENT, commit_sha TEXT, valid BOOLEAN, message TEXT, filepath TEXT, line INT, column INT, column_end INT, snippet TEXT, kind TEXT, FOREIGN KEY(commit_sha) REFERENCES commits(commit_sha))"
   )
 
 }
@@ -191,12 +209,29 @@ case class Commit(sha: String, scanned: Boolean, validated: Boolean, repositoryI
   *   the finding ID.
   * @param commitSha
   *   the related commit.
-  * @param description
-  *   the finding description.
   * @param valid
   *   if the finding is valid. This field is only considered if the related commit has been validated.
+  * @param message
+  *   the finding description.
+  * @param filepath
+  *   the relative filepath.
+  * @param snippet
+  *   a code snippet if available.
+  * @param kind
+  *   the vulnerability kind.
   */
-case class Finding(id: Int, commitSha: String, description: String, valid: Boolean)
+case class Finding(
+  id: Int = -1,
+  commitSha: String = "",
+  valid: Boolean = false,
+  message: String,
+  filepath: String,
+  line: Int,
+  column: Int,
+  @upickle.implicits.key("end_column") columnEnd: Int,
+  snippet: Option[String] = None,
+  kind: String
+) derives ReadWriter
 
 object Repository {
 
@@ -238,8 +273,14 @@ object Finding {
         Finding(
           id = rs.getInt("id"),
           commitSha = rs.getString("commit_sha"),
-          description = rs.getString("description"),
-          valid = rs.getBoolean("valid")
+          valid = rs.getBoolean("valid"),
+          message = rs.getString("message"),
+          filepath = rs.getString("filepath"),
+          line = rs.getInt("line"),
+          column = rs.getInt("column"),
+          columnEnd = rs.getInt("column_end"),
+          snippet = Option(rs.getString("snippet")),
+          kind = rs.getString("kind")
         )
       )
     }
