@@ -10,7 +10,7 @@ class ActionAttack(config: Config) {
 
   private val logger = LoggerFactory.getLogger(getClass)
 
-  def run(): Unit = Using.resource(Database()) { db =>
+  def run(): Unit = Using.resource(Database(config.dbPath)) { db =>
     config.mode match {
       case OperatingMode.Monitor =>
         config.ghToken.orElse {

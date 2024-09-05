@@ -1,6 +1,5 @@
 package com.whirlylabs.actionattack
 
-import com.whirlylabs.actionattack.Database.FALSE
 import org.slf4j.LoggerFactory
 
 import java.nio.file.Path
@@ -75,10 +74,9 @@ class Database(location: Option[Path] = None) extends AutoCloseable {
     *   the next unscanned commit in the repository if one is available.
     */
   def getNextCommitToScan: Option[Commit] = {
-    Using.resource(connection.createStatement()) { stmt =>
-      Using.resource(stmt.executeQuery(s"SELECT * FROM commits WHERE scanned = $FALSE LIMIT 1")) { results =>
-        Commit.fromResultSet(results).headOption
-      }
+    Using.resource(connection.prepareStatement(s"SELECT * FROM commits WHERE scanned = ? LIMIT 1")) { stmt =>
+      stmt.setBoolean(1, false)
+      Using.resource(stmt.executeQuery())(Commit.fromResultSet(_).headOption)
     }
   }
 
@@ -115,6 +113,11 @@ class Database(location: Option[Path] = None) extends AutoCloseable {
         stmt.execute()
       }
     }
+    Using.resource(connection.prepareStatement("UPDATE commits SET scanned = ? WHERE sha = ?")) { stmt =>
+      stmt.setBoolean(1, true)
+      stmt.setString(2, commit.sha)
+      stmt.execute()
+    }
   }
 
   private def createRepoIfNotExists(owner: String, name: String): Try[Int] = Try {
@@ -141,9 +144,6 @@ class Database(location: Option[Path] = None) extends AutoCloseable {
 
 object Database {
 
-  val TRUE: Int  = 1
-  val FALSE: Int = 0
-
   val schema: List[String] = List(
     "CREATE TABLE IF NOT EXISTS repository (id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT, name TEXT, UNIQUE(owner, name))",
     "CREATE TABLE IF NOT EXISTS commits (sha TEXT PRIMARY KEY, scanned BOOLEAN, validated BOOLEAN, repository_id INTEGER, FOREIGN KEY(repository_id) REFERENCES repository(id))",
@@ -166,7 +166,7 @@ case class Repository(id: Int, owner: String, name: String) {
   /** @return
     *   the GitHub URL to the repository.
     */
-  def toUrl: URL = URI(s"https://github.com/$owner/$name").toURL
+  def toUrl: URL = URI(s"https://github.com/$owner/$name.git").toURL
 
   override def toString: String = s"$owner/$name"
 
@@ -203,7 +203,7 @@ object Repository {
   def fromResultSet(rs: ResultSet): List[Repository] = {
     val xs = mutable.ListBuffer.empty[Repository]
     while (rs.next()) {
-      Repository(id = rs.getInt("id"), owner = rs.getString("owner"), name = rs.getString("name"))
+      xs.addOne(Repository(id = rs.getInt("id"), owner = rs.getString("owner"), name = rs.getString("name")))
     }
     xs.toList
   }
@@ -215,11 +215,13 @@ object Commit {
   def fromResultSet(rs: ResultSet): List[Commit] = {
     val xs = mutable.ListBuffer.empty[Commit]
     while (rs.next()) {
-      Commit(
-        sha = rs.getString("sha"),
-        scanned = rs.getBoolean("sha"),
-        validated = rs.getBoolean("validated"),
-        repositoryId = rs.getInt("repository_id")
+      xs.addOne(
+        Commit(
+          sha = rs.getString("sha"),
+          scanned = rs.getBoolean("sha"),
+          validated = rs.getBoolean("validated"),
+          repositoryId = rs.getInt("repository_id")
+        )
       )
     }
     xs.toList
@@ -232,11 +234,13 @@ object Finding {
   def fromResultSet(rs: ResultSet): List[Finding] = {
     val xs = mutable.ListBuffer.empty[Finding]
     while (rs.next()) {
-      Finding(
-        id = rs.getInt("id"),
-        commitSha = rs.getString("commit_sha"),
-        description = rs.getString("description"),
-        valid = rs.getBoolean("valid")
+      xs.addOne(
+        Finding(
+          id = rs.getInt("id"),
+          commitSha = rs.getString("commit_sha"),
+          description = rs.getString("description"),
+          valid = rs.getBoolean("valid")
+        )
       )
     }
     xs.toList
