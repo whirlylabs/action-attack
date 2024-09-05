@@ -93,7 +93,7 @@ object Monitor {
     requestCounter: VariableCounter,
     page: Int = 1
   ): Try[List[CodeSearchResponse]] = Try {
-    if requestCounter.next % 10 == 0 then Thread.sleep(60)
+    if requestCounter.next % 10 == 0 then Thread.sleep(60 * 1000)
 
     val response = requests.get(
       "https://api.github.com/search/code",
