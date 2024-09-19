@@ -5,8 +5,7 @@ import com.whirlylabs.actionattack.scan.yaml.CommandInjection
 class CommandInjectionTests extends YamlScanTestFixture(CommandInjection() :: Nil) {
 
   "a direct command injection should product a finding" in {
-    val findings = workflow(
-      """
+    val findings = workflow("""
         |name: CI
         |on:
         |  push:
@@ -23,7 +22,13 @@ class CommandInjectionTests extends YamlScanTestFixture(CommandInjection() :: Ni
         |         echo "Event name: ${{ github.event_name }}"
         |""".stripMargin)
 
-    println(findings)
+    inside(findings) { case f1 :: _ =>
+      f1.message shouldBe "Job 'setup' contains a command injection"
+      f1.snippet shouldBe Option("echo \"Event name: ${{ github.event_name }}\"")
+      f1.kind shouldBe "command-injection"
+      f1.line shouldBe 13
+      f1.column shouldBe 12
+    }
   }
 
 }
