@@ -25,7 +25,7 @@ class CommandInjectionTests extends YamlScanTestFixture(CommandInjectionScanner(
     inside(findings) { case f1 :: _ =>
       f1.message shouldBe "'setup' has command injection at 'echo \"Head ref: ${{ github.head_ref }}\"'"
       f1.snippet shouldBe Option("echo \"Head ref: ${{ github.head_ref }}\"")
-      f1.kind shouldBe "command-injection"
+      f1.kind shouldBe "command-injection-direct"
       f1.line shouldBe 13
       f1.column shouldBe 12
     }
@@ -47,7 +47,7 @@ class CommandInjectionTests extends YamlScanTestFixture(CommandInjectionScanner(
     inside(findings) { case f1 :: _ =>
       f1.message shouldBe "'echo-body' has command injection at 'echo '${{ env.BODY }}''"
       f1.snippet shouldBe Option("echo '${{ env.BODY }}'")
-      f1.kind shouldBe "command-injection"
+      f1.kind shouldBe "command-injection-aliased"
       f1.line shouldBe 8
       f1.column shouldBe 12
     }
@@ -67,7 +67,7 @@ class CommandInjectionTests extends YamlScanTestFixture(CommandInjectionScanner(
     inside(findings) { case f1 :: _ =>
       f1.message shouldBe "'echo-body' has command injection at 'echo '${{ github.event.pages.blah.pag[...]'"
       f1.snippet shouldBe Option("echo '${{ github.event.pages.blah.page_name }}'")
-      f1.kind shouldBe "command-injection"
+      f1.kind shouldBe "command-injection-direct"
       f1.line shouldBe 6
       f1.column shouldBe 12
     }
@@ -107,7 +107,7 @@ class CommandInjectionTests extends YamlScanTestFixture(CommandInjectionScanner(
       f1.snippet shouldBe Option(
         "core.setOutput('issue_title', ${{ github.event.issue.title }}.replaceAll(/\"/g, '\\\\\"'));"
       )
-      f1.kind shouldBe "command-injection"
+      f1.kind shouldBe "command-injection-direct"
       f1.line shouldBe 10
       f1.column shouldBe 18
     }
