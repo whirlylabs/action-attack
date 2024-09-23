@@ -13,11 +13,13 @@ class CommandInjectionScanner extends YamlScanner {
     actionsFile.jobs
       .flatMap { case (jobName, job) => findCommandInjections(job).map(a => jobName -> a) }
       .map { case (jobName, actionNode) =>
+        val rawSnippet    = actionNode.code.strip()
+        val shortenedCode = if (rawSnippet.sizeIs > 40) s"${rawSnippet.take(37)}[...]" else rawSnippet
         Finding(
           kind = kind,
           commitSha = commitSha,
-          message = s"'$jobName' has command injection at '${actionNode.code.strip()}'",
-          snippet = Option(actionNode.code.strip()),
+          message = s"'$jobName' has command injection at '$shortenedCode'",
+          snippet = Option(rawSnippet),
           filepath = filepath,
           line = actionNode.location.line,
           column = actionNode.location.column,
@@ -28,16 +30,13 @@ class CommandInjectionScanner extends YamlScanner {
   }
 
   private def findCommandInjections(job: Job): List[ActionNode] = {
-    val attackerControlledSources = CommandInjectionScanner.sources
     job.steps
-      .flatMap { step =>
-        step.run.map(run => run -> step.env)
-      }
+      .flatMap(step => step.sinks.map(sink => sink -> step.env))
       .flatMap {
-        case (run: InterpolatedString, env: Map[String, YamlString]) =>
-          // TODO: May want to make this precise feedback
-          if (hasDirectInjection(run) || hasAliasedInjection(run, env)) {
-            Option(run)
+        case (sink: InterpolatedString, env: Map[String, YamlString]) =>
+          // TODO: May want to make this more precise feedback
+          if (hasDirectInjection(sink) || hasAliasedInjection(sink, env)) {
+            Option(sink)
           } else {
             None
           }
@@ -45,15 +44,15 @@ class CommandInjectionScanner extends YamlScanner {
       }
   }
 
-  private def hasDirectInjection(run: InterpolatedString): Boolean = {
+  private def hasDirectInjection(sink: InterpolatedString): Boolean = {
     CommandInjectionScanner.sources.exists {
-      case CommandInjectionScanner.ExactLiteralSource(source) => run.interpolations.contains(source)
-      case CommandInjectionScanner.RegexLiteralSource(source) => run.interpolations.exists(_.matches(source))
+      case CommandInjectionScanner.ExactLiteralSource(source) => sink.interpolations.contains(source)
+      case CommandInjectionScanner.RegexLiteralSource(source) => sink.interpolations.exists(_.matches(source))
     }
   }
 
-  private def hasAliasedInjection(run: InterpolatedString, env: Map[String, YamlString]): Boolean = {
-    run.interpolations
+  private def hasAliasedInjection(sink: InterpolatedString, env: Map[String, YamlString]): Boolean = {
+    sink.interpolations
       .flatMap {
         case x if x.startsWith("env.") => Option(x.stripPrefix("env."))
         case _                         => None
@@ -95,7 +94,9 @@ object CommandInjectionScanner {
     ExactLiteralSource("github.event.pull_request.head.ref"),
     ExactLiteralSource("github.event.pull_request.head.label"),
     ExactLiteralSource("github.event.pull_request.head.repo.default_branch"),
-    ExactLiteralSource("github.head_ref")
+    ExactLiteralSource("github.head_ref"),
+    RegexLiteralSource("steps\\..*\\.outputs\\..*"),
+    RegexLiteralSource("needs\\..*\\.outputs\\..*")
   )
 
   sealed trait AttackerControlledSource {

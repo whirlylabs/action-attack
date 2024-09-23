@@ -84,7 +84,9 @@ object Monitor {
     "github.event.pull_request.head.ref",
     "github.event.pull_request.head.label",
     "github.event.pull_request.head.repo.default_branch",
-    "github.head_ref"
+    "github.head_ref",
+    "steps. outputs",
+    "needs. outputs"
   )
 
   private def getRepos(

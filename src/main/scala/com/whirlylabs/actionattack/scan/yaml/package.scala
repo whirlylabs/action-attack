@@ -101,6 +101,24 @@ package object yaml {
 
   object ActionNode {
 
+    /** Deserializes the map value at the key of the given map. Makes sure `location` is removed to keep the values a
+      * uniform type `YamlString`.
+      * @return
+      *   the deserialized map.
+      */
+    private def deserializeMap(
+      key: String,
+      map: upickle.core.LinkedHashMap[String, ujson.Value]
+    ): Map[String, YamlString] = {
+      if (map.contains(key)) {
+        val envMap = map(key).obj
+        envMap.remove("location")
+        read[Map[String, YamlString]](envMap)
+      } else {
+        Map.empty
+      }
+    }
+
     // Custom ReadWriters for case classes
     implicit val locationRW: ReadWriter[Location] = macroRW
     implicit val gitHubActionsRW: ReadWriter[GitHubActionsWorkflow] =
@@ -203,19 +221,12 @@ package object yaml {
       {
         case x: ujson.Obj =>
           val map = x.obj
-          val env = if (map.contains("env")) {
-            val envMap = map("env").obj
-            envMap.remove("location")
-            read[Map[String, YamlString]](envMap)
-          } else {
-            Map.empty
-          }
           Step(
             name = if map.contains("name") then Option(read[YamlString](x("name"))) else None,
             uses = if map.contains("uses") then Option(read[YamlString](x("uses"))) else None,
             run = if map.contains("run") then Option(read[YamlString](x("run"))) else None,
-            env = env,
-            `with` = if map.contains("with") then read[Map[String, YamlString]](x("with")) else Map.empty,
+            env = deserializeMap("env", map),
+            `with` = deserializeMap("with", map),
             location = read[Location](x("location"))
           )
         case x =>
@@ -312,6 +323,11 @@ package object yaml {
          |run: ${run.getOrElse("<unspecified>")}
          |with: ... (${`with`.size}
          |""".stripMargin
+
+    /** @return
+      *   a list of all values that may be considered sensitive sinks.
+      */
+    def sinks: List[YamlString] = List(run, `with`.get("cmd"), `with`.get("script")).flatten
   }
 
   sealed trait YamlString {
