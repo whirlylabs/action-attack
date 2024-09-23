@@ -1,86 +1,18 @@
 package com.whirlylabs.actionattack.scan
 
 import com.whirlylabs.actionattack.Finding
-import org.yaml.snakeyaml.constructor.SafeConstructor
-import org.yaml.snakeyaml.nodes.*
-import org.yaml.snakeyaml.{LoaderOptions, Yaml}
-import ujson.{Arr, Null, Obj, Str}
+import ujson.{Arr, Obj, Str}
 import upickle.core.*
 import upickle.default.*
 
-import java.io.StringReader
 import scala.collection.mutable.ArrayBuffer
-import scala.jdk.CollectionConverters.*
 import scala.util.Try
 
 package object yaml {
 
   def yamlToGHWorkflow(yamlStr: String): Try[GitHubActionsWorkflow] = Try {
-    val options = LoaderOptions()
-    options.setAllowDuplicateKeys(false)
-    val yaml     = new Yaml(new CustomSafeConstructor(options))
-    val reader   = new StringReader(yamlStr)
-    val rootNode = yaml.compose(reader)
-
-    def convertNodeToJsonWithLocation(node: Node): ujson.Value = {
-      node.getNodeId match {
-        case NodeId.mapping =>
-          val mappingNode = node.asInstanceOf[MappingNode]
-          val obj         = ujson.Obj()
-          for (tuple <- mappingNode.getValue.asScala) {
-            val keyNode   = tuple.getKeyNode.asInstanceOf[ScalarNode]
-            val key       = keyNode.getValue
-            val valueNode = tuple.getValueNode
-            val tupleObj: ujson.Value = convertNodeToJsonWithLocation(valueNode) match {
-              case x: Obj => x("location") = valueNode.toLocationObj; x
-              case x: Str =>
-                ujson.Obj("value" -> x, "location" -> valueNode.toLocationObj)
-              case x => x
-            }
-            obj(key) = tupleObj
-          }
-          obj("location") = node.toLocationObj
-          obj
-        case NodeId.sequence =>
-          val sequenceNode          = node.asInstanceOf[SequenceNode]
-          val childrenWithLocations = sequenceNode.getValue.asScala.map(convertNodeToJsonWithLocation).toSeq
-          ujson.Arr(childrenWithLocations)
-        case NodeId.scalar =>
-          val scalarNode = node.asInstanceOf[ScalarNode]
-          scalarNode.getValue
-          ujson.Obj("value" -> scalarNode.getValue, "location" -> scalarNode.toLocationObj)
-        case _ =>
-          ujson.Null
-      }
-    }
-
-    val scalaJson = convertNodeToJsonWithLocation(rootNode)
+    val scalaJson = YamlParser.parseToJson(yamlStr)
     read[GitHubActionsWorkflow](scalaJson)
-  }
-
-  implicit class YamlNodeExt(node: Node) {
-    def toLocationObj: Obj = ujson.Obj(
-      "line"      -> node.getStartMark.getLine,
-      "columnEnd" -> node.getEndMark.getLine,
-      "column"    -> node.getStartMark.getColumn,
-      "columnEnd" -> node.getEndMark.getColumn
-    )
-  }
-
-  private class CustomSafeConstructor(options: LoaderOptions) extends SafeConstructor(options) {
-
-    override protected def constructObject(node: Node): Object = {
-      if (node.getNodeId == NodeId.scalar && node.isInstanceOf[ScalarNode]) {
-        // Check if the key is `on` or `off`, and force it to be treated as a string
-        val scalarNode = node.asInstanceOf[ScalarNode]
-        scalarNode.getValue match {
-          case "on" | "off" => scalarNode.getValue         // Return "on" and "off" as strings
-          case _            => super.constructObject(node) // Delegate to SafeConstructor for other cases
-        }
-      } else {
-        super.constructObject(node)
-      }
-    }
   }
 
   def runScans(actionsFile: GitHubActionsWorkflow, scans: List[YamlScanner] = Nil): List[Finding] = {

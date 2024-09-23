@@ -7,6 +7,7 @@ import com.whirlylabs.actionattack.scan.yaml.{
   yamlToGHWorkflow
 }
 import org.slf4j.LoggerFactory
+import org.yaml.snakeyaml.scanner.ScannerException
 
 import java.io.File
 import java.nio.file.{Files, Path}
@@ -98,6 +99,9 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
           .flatMap { path =>
             yamlToGHWorkflow(Files.readString(path)) match {
               case Success(workflow) => Option(workflow)
+              case Failure(_: ScannerException) =>
+                logger.warn(s"Unable to parse '$path', it appears to be an invalid YAML file")
+                None
               case Failure(e) if !path.getParent.equals(githubPath) =>
                 logger.debug(
                   s"Unable to parse '$path' as a GitHub workflow file, however it's likely that it's not one",

@@ -4,6 +4,8 @@ import com.whirlylabs.actionattack.scan.yaml.yamlToGHWorkflow
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
+import scala.util.{Failure, Success}
+
 class YamlParsingTests extends AnyWordSpec with Matchers {
 
   "parsing a file with an array `on:` key should pass" in {
@@ -18,7 +20,10 @@ class YamlParsingTests extends AnyWordSpec with Matchers {
         |    steps:
         |     - name: "Foo"
         |       run: "echo 'hello, world!'"
-        |""".stripMargin).isSuccess shouldBe true
+        |""".stripMargin) match {
+      case Failure(exception) => fail(exception)
+      case Success(_)         => succeed
+    }
   }
 
   "parsing a file with an array on `issue.types` should pass" in {
@@ -39,7 +44,10 @@ class YamlParsingTests extends AnyWordSpec with Matchers {
         |        id: checkUser
         |        with:
         |          require: 'write'
-        |""".stripMargin).isSuccess shouldBe true
+        |""".stripMargin) match {
+      case Failure(exception) => fail(exception)
+      case Success(_)         => succeed
+    }
   }
 
   "parsing a file where `runs-on` is an array should pass" in {
@@ -54,7 +62,10 @@ class YamlParsingTests extends AnyWordSpec with Matchers {
         |      fail-fast: false
         |    steps:
         |      - uses: actions/checkout@v4
-        |""".stripMargin).isSuccess shouldBe true
+        |""".stripMargin) match {
+      case Failure(exception) => fail(exception)
+      case Success(_)         => succeed
+    }
   }
 
   "workflow trigger types as both arrays and strings should pass" in {
@@ -79,7 +90,10 @@ class YamlParsingTests extends AnyWordSpec with Matchers {
         |        with:
         |          relays: ${{ vars.NOSTR_RELAYS }}
         |          private-key: ${{ secrets.NOSTR_PRIVATE_KEY }}
-        |""".stripMargin).isSuccess shouldBe true
+        |""".stripMargin) match {
+      case Failure(exception) => fail(exception)
+      case Success(_)         => succeed
+    }
   }
 
   "a file with a `runs-on` map holding a `labels` key should parse successfully" in {
@@ -125,7 +139,31 @@ class YamlParsingTests extends AnyWordSpec with Matchers {
         |          ephemeral-org-id: "${{ secrets.EI_EPHEMERAL_ORG_ID }}"
         |          oss-or-enterprise: oss
         |          verbose: true
-        |""".stripMargin).isSuccess shouldBe true
+        |""".stripMargin) match {
+      case Failure(exception) => fail(exception)
+      case Success(_)         => succeed
+    }
+  }
+
+  "a file with a string containing an unescaped colon should not parse correctly as it is invalid YAML" in {
+    yamlToGHWorkflow("""
+        |name: Add New Member
+        |on:
+        |  issues:
+        |    types: [opened]
+        |
+        |jobs:
+        |  add_member:
+        |    runs-on: ubuntu-latest
+        |
+        |    steps:
+        |      - name: Debugging - Print PR Author
+        |        if: env.add_member == 'true'
+        |        run: echo "PR Author: ${{ env.pr_author }}"
+        |""".stripMargin) match {
+      case Failure(_) => succeed
+      case Success(_) => fail("This is invalid YAML")
+    }
   }
 
 }
