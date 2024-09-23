@@ -1,8 +1,8 @@
 package com.whirlylabs.actionattack.scan
 
-import com.whirlylabs.actionattack.scan.yaml.{CommandInjectionScanner, EnvTransformer}
+import com.whirlylabs.actionattack.scan.yaml.CommandInjectionScanner
 
-class CommandInjectionTests extends YamlScanTestFixture(EnvTransformer() :: Nil, CommandInjectionScanner() :: Nil) {
+class CommandInjectionTests extends YamlScanTestFixture(CommandInjectionScanner() :: Nil) {
 
   "a direct command injection should produce a finding" in {
     val findings = workflow("""

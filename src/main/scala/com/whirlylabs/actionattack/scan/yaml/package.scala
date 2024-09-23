@@ -84,14 +84,9 @@ package object yaml {
 
   def runScans(
     actionsFile: GitHubActionsWorkflow,
-    transformers: List[YamlTransformer] = Nil,
     scans: List[YamlScanner] = Nil
   ): List[Finding] = {
-    var transformedFile = actionsFile
-    transformers.foreach { transformer =>
-      transformedFile = transformer.transform(transformedFile)
-    }
-    scans.flatMap(_.scan(transformedFile))
+    scans.flatMap(_.scan(actionsFile))
   }
 
   sealed trait ActionNode {
