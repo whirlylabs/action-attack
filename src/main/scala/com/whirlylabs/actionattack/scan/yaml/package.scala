@@ -82,8 +82,16 @@ package object yaml {
     }
   }
 
-  def runScans(actionsFile: GitHubActionsWorkflow, scans: List[YamlScanner]): List[Finding] = {
-    scans.flatMap(_.scan(actionsFile))
+  def runScans(
+    actionsFile: GitHubActionsWorkflow,
+    transformers: List[YamlTransformer] = Nil,
+    scans: List[YamlScanner] = Nil
+  ): List[Finding] = {
+    var transformedFile = actionsFile
+    transformers.foreach { transformer =>
+      transformedFile = transformer.transform(transformedFile)
+    }
+    scans.flatMap(_.scan(transformedFile))
   }
 
   sealed trait ActionNode {
@@ -113,7 +121,7 @@ package object yaml {
             jobs.collect { case map: Obj => map.obj.remove("location") }
             val jobMap = jobs.map(read[Map[String, Job]](_)).getOrElse(Map.empty)
             GitHubActionsWorkflow(
-              name = if map.contains("name") then Option(read[LocatedString](x("name"))) else None,
+              name = if map.contains("name") then Option(read[YamlString](x("name"))) else None,
               on = read[WorkflowTrigger](x("on")),
               jobs = jobMap,
               location = read[Location](x("location"))
@@ -143,7 +151,7 @@ package object yaml {
             val map          = x.obj
             val branchesJson = map.get("push")
             branchesJson.collect { case map: Obj => map.obj.remove("location") }
-            val branches = branchesJson.map(read[List[LocatedString]](_)).getOrElse(Nil)
+            val branches = branchesJson.map(read[List[YamlString]](_)).getOrElse(Nil)
             Push(branches = branches, location = read[Location](x("location")))
           case x => throw new RuntimeException(s"`Push` expects an object, not ${x.getClass}")
         }
@@ -156,7 +164,7 @@ package object yaml {
             val map          = x.obj
             val branchesJson = map.get("pull")
             branchesJson.collect { case map: Obj => map.obj.remove("location") }
-            val branches = branchesJson.map(read[List[LocatedString]](_)).getOrElse(Nil)
+            val branches = branchesJson.map(read[List[YamlString]](_)).getOrElse(Nil)
             PullRequest(branches = branches, location = read[Location](x("location")))
           case x => throw new RuntimeException(s"`Push` expects an object, not ${x.getClass}")
         }
@@ -169,7 +177,7 @@ package object yaml {
             val map       = x.obj
             val typesJson = map.get("types")
             typesJson.collect { case map: Obj => map.obj.remove("location") }
-            val types = typesJson.map(read[List[LocatedString]](_)).getOrElse(Nil)
+            val types = typesJson.map(read[List[YamlString]](_)).getOrElse(Nil)
             Issues(types = types, location = read[Location](x("location")))
           case x => throw new RuntimeException(s"`Push` expects an object, not ${x.getClass}")
         }
@@ -182,8 +190,8 @@ package object yaml {
           val stepsOpt = x("steps").arr
           val steps    = if stepsOpt.isEmpty then Nil else read[List[Step]](stepsOpt.head)
           Job(
-            name = if map.contains("name") then Option(read[LocatedString](x("name"))) else None,
-            runsOn = read[LocatedString](x("runs-on")),
+            name = if map.contains("name") then Option(read[YamlString](x("name"))) else None,
+            runsOn = read[YamlString](x("runs-on")),
             steps = steps,
             location = read[Location](x("location"))
           )
@@ -195,6 +203,7 @@ package object yaml {
         ujson.Obj(
           "name"     -> write(x.name),
           "uses"     -> write(x.uses),
+          "env"      -> write(x.env),
           "run"      -> write(x.run),
           "with"     -> write(x.`with`),
           "location" -> write(x.location)
@@ -202,35 +211,57 @@ package object yaml {
       {
         case x: ujson.Obj =>
           val map = x.obj
+          val env = if (map.contains("env")) {
+            val envMap = map("env").obj
+            envMap.remove("location")
+            read[Map[String, YamlString]](envMap)
+          } else {
+            Map.empty
+          }
           Step(
-            name = if map.contains("name") then Option(read[LocatedString](x("name"))) else None,
-            uses = if map.contains("uses") then Option(read[LocatedString](x("uses"))) else None,
-            run = if map.contains("run") then Option(read[LocatedString](x("run"))) else None,
-            `with` = if map.contains("with") then read[Map[String, LocatedString]](x("with")) else Map.empty,
+            name = if map.contains("name") then Option(read[YamlString](x("name"))) else None,
+            uses = if map.contains("uses") then Option(read[YamlString](x("uses"))) else None,
+            run = if map.contains("run") then Option(read[YamlString](x("run"))) else None,
+            env = env,
+            `with` = if map.contains("with") then read[Map[String, YamlString]](x("with")) else Map.empty,
             location = read[Location](x("location"))
           )
         case x =>
           throw new RuntimeException(s"`Step` expects an object, not ${x.getClass}")
       }
     )
-    implicit val locatedString: ReadWriter[LocatedString] = readwriter[ujson.Value].bimap[LocatedString](
-      x => ujson.Obj("value" -> write(x.value), "location" -> write(x.location)),
+
+    implicit val yamlString: ReadWriter[YamlString] = readwriter[ujson.Value].bimap[YamlString](
+      {
+        case x: LocatedString      => ujson.Obj("value" -> write(x.value), "location" -> write(x.location))
+        case x: InterpolatedString => ujson.Obj("value" -> write(x.value), "location" -> write(x.location))
+      },
       {
         case x: ujson.Obj =>
-          LocatedString(value = read[String](x("value")), location = read[Location](x("location")))
+          val str            = read[String](x("value"))
+          val interpolations = extractGitHubInterpolations(str)
+          val location       = read[Location](x("location"))
+          if interpolations.isEmpty then LocatedString(value = str, location = location)
+          else InterpolatedString(value = str, location = location, interpolations = interpolations)
         case x =>
-          throw new RuntimeException(s"`Step` expects an object, not ${x.getClass}")
+          throw new RuntimeException(s"`YamlString` expects an object, not ${x.getClass}")
       }
     )
   }
 
+  private def extractGitHubInterpolations(input: String): List[String] = {
+    // Regular expression to match the content inside ${{ ... }}
+    val interpolationPattern = """\$\{\{\s*([^\}]+)\s*\}\}""".r
+    // Find all matches and return the interpolations as a List[String]
+    interpolationPattern.findAllMatchIn(input).map(_.group(1).trim).toList
+  }
+
   case class GitHubActionsWorkflow(
-    name: Option[LocatedString],
+    name: Option[YamlString],
     on: WorkflowTrigger,
     jobs: Map[String, Job] = Map.empty,
     location: Location
-  ) extends ActionNode
-      derives Writer {
+  ) extends ActionNode {
     def code: String =
       s"""name: ${name.getOrElse("<unspecified>")}
          |on: ${on.code}
@@ -251,21 +282,21 @@ package object yaml {
         |""".stripMargin
   }
 
-  case class Push(branches: List[LocatedString] = Nil, location: Location) extends ActionNode {
+  case class Push(branches: List[YamlString] = Nil, location: Location) extends ActionNode {
     def code: String = s"branches: [${branches.mkString(",")}]"
   }
 
-  case class PullRequest(branches: List[LocatedString] = Nil, location: Location) extends ActionNode {
+  case class PullRequest(branches: List[YamlString] = Nil, location: Location) extends ActionNode {
     def code: String = s"branches: [${branches.mkString(",")}]"
   }
 
-  case class Issues(types: List[LocatedString] = Nil, location: Location) extends ActionNode {
+  case class Issues(types: List[YamlString] = Nil, location: Location) extends ActionNode {
     def code: String = s"types: [${types.mkString(",")}]"
   }
 
   case class Job(
-    name: Option[LocatedString] = None,
-    @upickle.implicits.key("runs-on") runsOn: LocatedString,
+    name: Option[YamlString] = None,
+    @upickle.implicits.key("runs-on") runsOn: YamlString,
     steps: List[Step],
     location: Location
   ) extends ActionNode {
@@ -275,21 +306,31 @@ package object yaml {
   }
 
   case class Step(
-    name: Option[LocatedString] = None,
-    uses: Option[LocatedString] = None,
-    run: Option[LocatedString] = None,
-    `with`: Map[String, LocatedString] = Map.empty,
+    name: Option[YamlString] = None,
+    uses: Option[YamlString] = None,
+    run: Option[YamlString] = None,
+    env: Map[String, YamlString] = Map.empty,
+    `with`: Map[String, YamlString] = Map.empty,
     location: Location
   ) extends ActionNode {
     def code: String =
       s"""name: ${name.getOrElse("<unspecified>")}
          |uses: ${uses.getOrElse("<unspecified>")}
+         |env: ... (${`env`.size}
          |run: ${run.getOrElse("<unspecified>")}
          |with: ... (${`with`.size}
          |""".stripMargin
   }
 
-  case class LocatedString(value: String, location: Location) extends ActionNode {
+  sealed trait YamlString
+
+  case class LocatedString(value: String, location: Location) extends ActionNode with YamlString {
+    def code: String = value
+  }
+
+  case class InterpolatedString(value: String, location: Location, interpolations: List[String])
+      extends ActionNode
+      with YamlString {
     def code: String = value
   }
 

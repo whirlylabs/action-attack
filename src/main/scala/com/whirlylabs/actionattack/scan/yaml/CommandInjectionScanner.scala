@@ -1,7 +1,7 @@
 package com.whirlylabs.actionattack.scan.yaml
 import com.whirlylabs.actionattack.Finding
 
-class CommandInjection extends YamlScanner {
+class CommandInjectionScanner extends YamlScanner {
 
   override val kind: String = "command-injection"
 
@@ -28,9 +28,15 @@ class CommandInjection extends YamlScanner {
   }
 
   private def findCommandInjections(job: Job): List[ActionNode] = {
-    job.steps.flatMap(_.run).filter { run =>
-      run.value.contains("${{ github.event_name }}")
+    val attackerControlledSources = CommandInjectionScanner.sources
+    job.steps.flatMap(_.run).collect {
+      case run: InterpolatedString if attackerControlledSources.exists(run.interpolations.contains) => run
     }
   }
 
+}
+
+object CommandInjectionScanner {
+  // TODO: Incorporate full list and regex
+  val sources: Set[String] = Set("github.event_name", "github.event.issue.body")
 }
