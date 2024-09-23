@@ -82,10 +82,7 @@ package object yaml {
     }
   }
 
-  def runScans(
-    actionsFile: GitHubActionsWorkflow,
-    scans: List[YamlScanner] = Nil
-  ): List[Finding] = {
+  def runScans(actionsFile: GitHubActionsWorkflow, scans: List[YamlScanner] = Nil): List[Finding] = {
     scans.flatMap(_.scan(actionsFile))
   }
 
@@ -244,11 +241,11 @@ package object yaml {
     )
   }
 
-  private def extractGitHubInterpolations(input: String): List[String] = {
+  private def extractGitHubInterpolations(input: String): Set[String] = {
     // Regular expression to match the content inside ${{ ... }}
     val interpolationPattern = """\$\{\{\s*([^\}]+)\s*\}\}""".r
-    // Find all matches and return the interpolations as a List[String]
-    interpolationPattern.findAllMatchIn(input).map(_.group(1).trim).toList
+    // Find all matches and return the interpolations a set
+    interpolationPattern.findAllMatchIn(input).map(_.group(1).trim).toSet
   }
 
   case class GitHubActionsWorkflow(
@@ -317,13 +314,19 @@ package object yaml {
          |""".stripMargin
   }
 
-  sealed trait YamlString
+  sealed trait YamlString {
+
+    /** @return
+      *   the string literal.
+      */
+    def value: String
+  }
 
   case class LocatedString(value: String, location: Location) extends ActionNode with YamlString {
     def code: String = value
   }
 
-  case class InterpolatedString(value: String, location: Location, interpolations: List[String])
+  case class InterpolatedString(value: String, location: Location, interpolations: Set[String])
       extends ActionNode
       with YamlString {
     def code: String = value

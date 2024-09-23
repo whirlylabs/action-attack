@@ -10,8 +10,7 @@ import scala.util.{Failure, Success}
 
 trait ScanTestFixture extends AnyWordSpec with Matchers with BeforeAndAfterAll with BeforeAndAfterEach with Inside
 
-trait YamlScanTestFixture(scansToRun: List[YamlScanner] = Nil)
-    extends ScanTestFixture {
+trait YamlScanTestFixture(scansToRun: List[YamlScanner] = Nil) extends ScanTestFixture {
 
   def workflow(code: String): List[Finding] = {
     yamlToJson(code) match {

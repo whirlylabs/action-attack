@@ -45,10 +45,10 @@ class CommandInjectionTests extends YamlScanTestFixture(CommandInjectionScanner(
         |""".stripMargin)
 
     inside(findings) { case f1 :: _ =>
-      f1.message shouldBe "Job 'echo-body' contains a command injection"
-      f1.snippet shouldBe Option("echo '${{ github.event.issue.body }}'")
+      f1.message shouldBe "'echo-body' has command injection at 'echo '${{ env.BODY }}''"
+      f1.snippet shouldBe Option("echo '${{ env.BODY }}'")
       f1.kind shouldBe "command-injection"
-      f1.line shouldBe 13
+      f1.line shouldBe 8
       f1.column shouldBe 12
     }
   }

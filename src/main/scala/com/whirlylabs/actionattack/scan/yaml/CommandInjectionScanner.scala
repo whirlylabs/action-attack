@@ -29,8 +29,33 @@ class CommandInjectionScanner extends YamlScanner {
 
   private def findCommandInjections(job: Job): List[ActionNode] = {
     val attackerControlledSources = CommandInjectionScanner.sources
-    job.steps.flatMap(_.run).collect {
-      case run: InterpolatedString if attackerControlledSources.exists(run.interpolations.contains) => run
+    job.steps
+      .flatMap { step =>
+        step.run.map(run => run -> step.env)
+      }
+      .flatMap {
+        case (run: InterpolatedString, env: Map[String, YamlString]) =>
+          val hasDirectInjection  = attackerControlledSources.exists(run.interpolations.contains)
+          val hasAliasedInjection = findAliasedInjection(run, env)
+          // TODO: May want to make this precise feedback
+          if (hasDirectInjection || hasAliasedInjection) {
+            Option(run)
+          } else {
+            None
+          }
+        case _ => None
+      }
+  }
+
+  private def findAliasedInjection(run: InterpolatedString, env: Map[String, YamlString]): Boolean = {
+    run.interpolations.exists { x =>
+      val key = x.stripPrefix("env.")
+      env.contains(key) && CommandInjectionScanner.sources.exists { source =>
+        env(key) match {
+          case LocatedString(value, _)                  => source == value
+          case InterpolatedString(_, _, interpolations) => interpolations.contains(source)
+        }
+      }
     }
   }
 
