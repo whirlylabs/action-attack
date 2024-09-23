@@ -1,85 +1,18 @@
 package com.whirlylabs.actionattack.scan
 
 import com.whirlylabs.actionattack.Finding
-import org.yaml.snakeyaml.constructor.SafeConstructor
-import org.yaml.snakeyaml.nodes.*
-import org.yaml.snakeyaml.{LoaderOptions, Yaml}
-import ujson.{Arr, Null, Obj, Str}
+import ujson.{Arr, Obj, Str}
 import upickle.core.*
 import upickle.default.*
 
-import java.io.StringReader
-import scala.jdk.CollectionConverters.*
+import scala.collection.mutable.ArrayBuffer
 import scala.util.Try
 
 package object yaml {
 
-  def yamlToJson(yamlStr: String): Try[GitHubActionsWorkflow] = Try {
-    val options = LoaderOptions()
-    options.setAllowDuplicateKeys(false)
-    val yaml     = new Yaml(new CustomSafeConstructor(options))
-    val reader   = new StringReader(yamlStr)
-    val rootNode = yaml.compose(reader)
-
-    def convertNodeToJsonWithLocation(node: Node): ujson.Value = {
-      node.getNodeId match {
-        case NodeId.mapping =>
-          val mappingNode = node.asInstanceOf[MappingNode]
-          val obj         = ujson.Obj()
-          for (tuple <- mappingNode.getValue.asScala) {
-            val keyNode   = tuple.getKeyNode.asInstanceOf[ScalarNode]
-            val key       = keyNode.getValue
-            val valueNode = tuple.getValueNode
-            val tupleObj: ujson.Value = convertNodeToJsonWithLocation(valueNode) match {
-              case x: Obj => x("location") = valueNode.toLocationObj; x
-              case x: Str =>
-                ujson.Obj("value" -> x, "location" -> valueNode.toLocationObj)
-              case x => x
-            }
-            obj(key) = tupleObj
-          }
-          obj("location") = node.toLocationObj
-          obj
-        case NodeId.sequence =>
-          val sequenceNode          = node.asInstanceOf[SequenceNode]
-          val childrenWithLocations = sequenceNode.getValue.asScala.map(convertNodeToJsonWithLocation).toSeq
-          ujson.Arr(childrenWithLocations)
-        case NodeId.scalar =>
-          val scalarNode = node.asInstanceOf[ScalarNode]
-          scalarNode.getValue
-          ujson.Obj("value" -> scalarNode.getValue, "location" -> scalarNode.toLocationObj)
-        case _ =>
-          ujson.Null
-      }
-    }
-
-    val scalaJson = convertNodeToJsonWithLocation(rootNode)
+  def yamlToGHWorkflow(yamlStr: String): Try[GitHubActionsWorkflow] = Try {
+    val scalaJson = YamlParser.parseToJson(yamlStr)
     read[GitHubActionsWorkflow](scalaJson)
-  }
-
-  implicit class YamlNodeExt(node: Node) {
-    def toLocationObj: Obj = ujson.Obj(
-      "line"      -> node.getStartMark.getLine,
-      "columnEnd" -> node.getEndMark.getLine,
-      "column"    -> node.getStartMark.getColumn,
-      "columnEnd" -> node.getEndMark.getColumn
-    )
-  }
-
-  private class CustomSafeConstructor(options: LoaderOptions) extends SafeConstructor(options) {
-
-    override protected def constructObject(node: Node): Object = {
-      if (node.getNodeId == NodeId.scalar && node.isInstanceOf[ScalarNode]) {
-        // Check if the key is `on` or `off`, and force it to be treated as a string
-        val scalarNode = node.asInstanceOf[ScalarNode]
-        scalarNode.getValue match {
-          case "on" | "off" => scalarNode.getValue         // Return "on" and "off" as strings
-          case _            => super.constructObject(node) // Delegate to SafeConstructor for other cases
-        }
-      } else {
-        super.constructObject(node)
-      }
-    }
   }
 
   def runScans(actionsFile: GitHubActionsWorkflow, scans: List[YamlScanner] = Nil): List[Finding] = {
@@ -126,15 +59,46 @@ package object yaml {
         x => write(x),
         {
           case x: ujson.Obj =>
-            val map  = x.obj
+            val map             = x.obj
+            val actionsLocation = read[Location](x("location"))
+
             val jobs = map.get("jobs")
             jobs.collect { case map: Obj => map.obj.remove("location") }
             val jobMap = jobs.map(read[Map[String, Job]](_)).getOrElse(Map.empty)
+
+            if !map.contains("on") then throw RuntimeException(s"`GitHubActionsWorkflow` expects an `on:` key")
+            val onNode = x("on")
+            val onLocation = onNode match {
+              case on: ujson.Obj => read[Location](on("location"))
+              case on: ujson.Arr =>
+                val firstElement = on.value.head.arr.head // pretty unsafe, but hey
+                read[Location](firstElement.obj("location"))
+              case _ => actionsLocation
+            }
+            val workflowTrigger = onNode match {
+              case on: ujson.Obj => read[WorkflowTrigger](on)
+              case on: ujson.Arr =>
+                var trigger = WorkflowTrigger(location = onLocation)
+                on.value.head.arr.map(read[YamlString](_)).foreach { yamlString =>
+                  yamlString.value match {
+                    case "push" =>
+                      trigger = trigger.copy(push = Option(Push(location = yamlString.location)))
+                    case "pull_request" =>
+                      trigger = trigger.copy(pullRequest = Option(PullRequest(location = yamlString.location)))
+                    case "issues" =>
+                      trigger = trigger.copy(issues = Option(Issues(location = yamlString.location)))
+                    case _ => None
+                  }
+                }
+                trigger
+              case _ => WorkflowTrigger(location = onLocation)
+            }
+
             GitHubActionsWorkflow(
               name = if map.contains("name") then Option(read[YamlString](x("name"))) else None,
-              on = read[WorkflowTrigger](x("on")),
+              on = workflowTrigger,
               jobs = jobMap,
-              location = read[Location](x("location"))
+              location = actionsLocation
             )
           case x => throw new RuntimeException(s"`GitHubActionsWorkflow` expects an object, not ${x.getClass}")
         }
@@ -184,10 +148,17 @@ package object yaml {
         x => write(x),
         {
           case x: ujson.Obj =>
-            val map       = x.obj
-            val typesJson = map.get("types")
-            typesJson.collect { case map: Obj => map.obj.remove("location") }
-            val types = typesJson.map(read[List[YamlString]](_)).getOrElse(Nil)
+            val map = x.obj
+            val types = map
+              .get("types")
+              .map {
+                case typ: ujson.Obj =>
+                  read[YamlString](typ) :: Nil
+                case typ: ujson.Arr =>
+                  read[List[YamlString]](typ.value.head.arr)
+                case _ => Nil
+              }
+              .getOrElse(Nil)
             Issues(types = types, location = read[Location](x("location")))
           case x => throw new RuntimeException(s"`Push` expects an object, not ${x.getClass}")
         }
@@ -197,11 +168,28 @@ package object yaml {
       {
         case x: ujson.Obj =>
           val map      = x.obj
-          val stepsOpt = x("steps").arr
+          val stepsOpt = if map.contains("steps") then x("steps").arr else ArrayBuffer.empty
           val steps    = if stepsOpt.isEmpty then Nil else read[List[Step]](stepsOpt.head)
+          val runsOn = if map.contains("runs-on") then {
+            // `runs-on` is the wild west
+            x("runs-on") match {
+              case r: ujson.Obj if r.obj.contains("labels") =>
+                r.obj("labels") match {
+                  case labels: ujson.Str => read[YamlString](labels) :: Nil
+                  case labels: ujson.Arr => labels.value.head.arr.map(read[YamlString](_)).toList
+                  case _                 => Nil
+                }
+              case r: ujson.Obj => read[YamlString](r) :: Nil
+              case r: ujson.Arr => r.value.head.arr.map(read[YamlString](_)).toList
+              case _            => Nil
+            }
+          } else {
+            Nil
+          }
+
           Job(
             name = if map.contains("name") then Option(read[YamlString](x("name"))) else None,
-            runsOn = read[YamlString](x("runs-on")),
+            runsOn = runsOn,
             steps = steps,
             location = read[Location](x("location"))
           )
@@ -299,7 +287,7 @@ package object yaml {
 
   case class Job(
     name: Option[YamlString] = None,
-    @upickle.implicits.key("runs-on") runsOn: YamlString,
+    @upickle.implicits.key("runs-on") runsOn: List[YamlString] = Nil,
     steps: List[Step],
     location: Location
   ) extends ActionNode {
@@ -330,7 +318,7 @@ package object yaml {
     def sinks: List[YamlString] = List(run, `with`.get("cmd"), `with`.get("script")).flatten
   }
 
-  sealed trait YamlString {
+  sealed trait YamlString extends ActionNode {
 
     /** @return
       *   the string literal.
@@ -338,13 +326,11 @@ package object yaml {
     def value: String
   }
 
-  case class LocatedString(value: String, location: Location) extends ActionNode with YamlString {
+  case class LocatedString(value: String, location: Location) extends YamlString {
     def code: String = value
   }
 
-  case class InterpolatedString(value: String, location: Location, interpolations: Set[String])
-      extends ActionNode
-      with YamlString {
+  case class InterpolatedString(value: String, location: Location, interpolations: Set[String]) extends YamlString {
     def code: String = value
   }
 
