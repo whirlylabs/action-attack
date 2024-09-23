@@ -1,0 +1,43 @@
+name: pr
+on: pull_request
+jobs:
+  formatting:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.sbt
+            ~/.coursier
+          key: ${{ runner.os }}-sbt-${{ hashfiles('**/build.sbt') }}
+      - name: Check formatting
+        run: sbt scalafmtCheck Test/scalafmtCheck
+      - run: echo "Previous step failed because code is not formatted. Run 'sbt scalafmt Test/scalafmt'"
+        if: ${{ failure() }}
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.sbt
+            ~/.coursier
+          key: ${{ runner.os }}-sbt-${{ hashfiles('**/build.sbt') }}
+      - name: Compile and run tests
+        run: sbt clean test
