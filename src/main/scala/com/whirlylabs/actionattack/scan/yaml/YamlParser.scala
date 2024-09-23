@@ -64,7 +64,7 @@ object YamlParser {
   private class CustomSafeConstructor(options: LoaderOptions) extends SafeConstructor(options) {
 
     override protected def constructObject(node: Node): Object = {
-      if (node.getNodeId == NodeId.scalar && node.isInstanceOf[ScalarNode]) {
+      if (Option(node.getNodeId).contains(NodeId.scalar) && node.isInstanceOf[ScalarNode]) {
         val scalarNode = node.asInstanceOf[ScalarNode]
         scalarNode.getValue match {
           case "on" | "off" => scalarNode.getValue         // Return "on" and "off" as strings
