@@ -9,12 +9,13 @@ import upickle.core.*
 import upickle.default.*
 
 import java.io.StringReader
+import scala.collection.mutable.ArrayBuffer
 import scala.jdk.CollectionConverters.*
 import scala.util.Try
 
 package object yaml {
 
-  def yamlToJson(yamlStr: String): Try[GitHubActionsWorkflow] = Try {
+  def yamlToGHWorkflow(yamlStr: String): Try[GitHubActionsWorkflow] = Try {
     val options = LoaderOptions()
     options.setAllowDuplicateKeys(false)
     val yaml     = new Yaml(new CustomSafeConstructor(options))
@@ -126,15 +127,46 @@ package object yaml {
         x => write(x),
         {
           case x: ujson.Obj =>
-            val map  = x.obj
+            val map             = x.obj
+            val actionsLocation = read[Location](x("location"))
+
             val jobs = map.get("jobs")
             jobs.collect { case map: Obj => map.obj.remove("location") }
             val jobMap = jobs.map(read[Map[String, Job]](_)).getOrElse(Map.empty)
+
+            if !map.contains("on") then throw RuntimeException(s"`GitHubActionsWorkflow` expects an `on:` key")
+            val onNode = x("on")
+            val onLocation = onNode match {
+              case on: ujson.Obj => read[Location](on("location"))
+              case on: ujson.Arr =>
+                val firstElement = on.value.head.arr.head // pretty unsafe, but hey
+                read[Location](firstElement.obj("location"))
+              case _ => actionsLocation
+            }
+            val workflowTrigger = onNode match {
+              case on: ujson.Obj => read[WorkflowTrigger](on)
+              case on: ujson.Arr =>
+                var trigger = WorkflowTrigger(location = onLocation)
+                on.value.head.arr.map(read[YamlString](_)).foreach { yamlString =>
+                  yamlString.value match {
+                    case "push" =>
+                      trigger = trigger.copy(push = Option(Push(location = yamlString.location)))
+                    case "pull_request" =>
+                      trigger = trigger.copy(pullRequest = Option(PullRequest(location = yamlString.location)))
+                    case "issues" =>
+                      trigger = trigger.copy(issues = Option(Issues(location = yamlString.location)))
+                    case _ => None
+                  }
+                }
+                trigger
+              case _ => WorkflowTrigger(location = onLocation)
+            }
+
             GitHubActionsWorkflow(
               name = if map.contains("name") then Option(read[YamlString](x("name"))) else None,
-              on = read[WorkflowTrigger](x("on")),
+              on = workflowTrigger,
               jobs = jobMap,
-              location = read[Location](x("location"))
+              location = actionsLocation
             )
           case x => throw new RuntimeException(s"`GitHubActionsWorkflow` expects an object, not ${x.getClass}")
         }
@@ -184,10 +216,17 @@ package object yaml {
         x => write(x),
         {
           case x: ujson.Obj =>
-            val map       = x.obj
-            val typesJson = map.get("types")
-            typesJson.collect { case map: Obj => map.obj.remove("location") }
-            val types = typesJson.map(read[List[YamlString]](_)).getOrElse(Nil)
+            val map = x.obj
+            val types = map
+              .get("types")
+              .map {
+                case typ: ujson.Obj =>
+                  read[YamlString](typ) :: Nil
+                case typ: ujson.Arr =>
+                  read[List[YamlString]](typ.value.head.arr)
+                case _ => Nil
+              }
+              .getOrElse(Nil)
             Issues(types = types, location = read[Location](x("location")))
           case x => throw new RuntimeException(s"`Push` expects an object, not ${x.getClass}")
         }
@@ -197,11 +236,21 @@ package object yaml {
       {
         case x: ujson.Obj =>
           val map      = x.obj
-          val stepsOpt = x("steps").arr
+          val stepsOpt = if map.contains("steps") then x("steps").arr else ArrayBuffer.empty
           val steps    = if stepsOpt.isEmpty then Nil else read[List[Step]](stepsOpt.head)
+          val runsOn = if map.contains("runs-on") then {
+            x("runs-on") match {
+              case r: ujson.Obj => read[YamlString](r) :: Nil
+              case r: ujson.Arr => r.value.head.arr.map(read[YamlString](_)).toList
+              case _            => Nil
+            }
+          } else {
+            Nil
+          }
+
           Job(
             name = if map.contains("name") then Option(read[YamlString](x("name"))) else None,
-            runsOn = read[YamlString](x("runs-on")),
+            runsOn = runsOn,
             steps = steps,
             location = read[Location](x("location"))
           )
@@ -299,7 +348,7 @@ package object yaml {
 
   case class Job(
     name: Option[YamlString] = None,
-    @upickle.implicits.key("runs-on") runsOn: YamlString,
+    @upickle.implicits.key("runs-on") runsOn: List[YamlString] = Nil,
     steps: List[Step],
     location: Location
   ) extends ActionNode {
@@ -330,7 +379,7 @@ package object yaml {
     def sinks: List[YamlString] = List(run, `with`.get("cmd"), `with`.get("script")).flatten
   }
 
-  sealed trait YamlString {
+  sealed trait YamlString extends ActionNode {
 
     /** @return
       *   the string literal.
@@ -338,13 +387,11 @@ package object yaml {
     def value: String
   }
 
-  case class LocatedString(value: String, location: Location) extends ActionNode with YamlString {
+  case class LocatedString(value: String, location: Location) extends YamlString {
     def code: String = value
   }
 
-  case class InterpolatedString(value: String, location: Location, interpolations: Set[String])
-      extends ActionNode
-      with YamlString {
+  case class InterpolatedString(value: String, location: Location, interpolations: Set[String]) extends YamlString {
     def code: String = value
   }
 

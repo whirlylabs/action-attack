@@ -1,11 +1,19 @@
 package com.whirlylabs.actionattack
 
+import com.whirlylabs.actionattack.scan.yaml.{
+  CommandInjectionScanner,
+  GitHubActionsWorkflow,
+  runScans,
+  yamlToGHWorkflow
+}
 import org.slf4j.LoggerFactory
 
 import java.io.File
 import java.nio.file.{Files, Path}
 import scala.util.{Failure, Success, Try}
 import upickle.default.*
+
+import scala.jdk.CollectionConverters.IteratorHasAsScala
 
 class Scanner(db: Database) extends Runnable, AutoCloseable {
 
@@ -41,7 +49,7 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
   }
 
   private def cloneRepo(repository: Repository, commit: Commit): Try[Path] = Try {
-    val targetDir = Files.createTempDirectory("action-attack-")
+    val targetDir = Files.createTempDirectory(s"action-attack-${repository.owner}-${repository.name}-")
     val repoUrl   = repository.toUrl
     val cloneCmd  = Seq("git", "clone", repoUrl.toString, targetDir.toAbsolutePath.toString, "--depth", "1")
     logger.debug(s"Cloning repository with '${cloneCmd.mkString(" ")}")
@@ -66,34 +74,74 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
   }
 
   private def runScan(repositoryPath: Path): List[Finding] = {
-    // Run scan with octoscan with suggested config
-    val args = Seq(
-      "octoscan",
-      "scan",
-      ".",
-      "--disable-rules",
-      "shellcheck,local-action",
-      "--filter-triggers",
-      "external",
-      "--json"
-    )
-    logger.debug(s"Running scan with $args")
-    val pb      = ProcessBuilder(args*).directory(repositoryPath.toFile)
-    val process = pb.startBlocking
-    val result  = new String(process.getInputStream.readAllBytes())
-    logger.debug(s"Scan complete with exit code ${process.exitValue()}")
-    val findings = read[List[Finding]](result)
-    if (process.exitValue() == 0) {
-      // This means no findings
-      Nil
-    } else if (process.exitValue() != 2) {
-      // This means error
-      logger.error(result)
-      Nil
-    } else {
-      logger.info(s"Scan resulted in ${findings.size} findings")
-      findings
+
+    def isYAMLFile(path: Path): Boolean = {
+      val fileName = path.getFileName.toString
+      fileName.endsWith(".yml") || fileName.endsWith(".yaml")
     }
+
+    def runInternal: List[Finding] = {
+      // TODO: Scanners to run should be configurable
+      lazy val scannersToRun = CommandInjectionScanner() :: Nil
+
+      val githubPath = repositoryPath.resolve(".github").resolve("workflows")
+      if (Files.exists(githubPath) && Files.isDirectory(githubPath)) {
+        // Run through GitHub directory for YAML files
+        val candidates = Files
+          .walk(githubPath)
+          .iterator()
+          .asScala
+          .filter(path => Files.isRegularFile(path) && isYAMLFile(path))
+          .toList
+        // Parse all yaml files and keep those that are workflow files
+        val workflowFiles = candidates
+          .flatMap { path =>
+            yamlToGHWorkflow(Files.readString(path)) match {
+              case Success(workflow) => Option(workflow)
+              case Failure(e) =>
+                logger.warn(s"Unable to parse '$path' as a GitHub workflow file", e)
+                None
+            }
+          }
+        // Run scans on these files
+        workflowFiles.flatMap(runScans(_, scannersToRun))
+      } else {
+        Nil
+      }
+    }
+
+    def runOctoscan: List[Finding] = {
+      // Run scan with octoscan with suggested config
+      val args = Seq(
+        "octoscan",
+        "scan",
+        ".",
+        "--disable-rules",
+        "shellcheck,local-action",
+        "--filter-triggers",
+        "external",
+        "--json"
+      )
+      logger.debug(s"Running scan with $args")
+      val pb      = ProcessBuilder(args*).directory(repositoryPath.toFile)
+      val process = pb.startBlocking
+      val result  = new String(process.getInputStream.readAllBytes())
+      logger.debug(s"Scan complete with exit code ${process.exitValue()}")
+      val findings = read[List[Finding]](result)
+      if (process.exitValue() == 0) {
+        // This means no findings
+        Nil
+      } else if (process.exitValue() != 2) {
+        // This means error
+        logger.error(result)
+        Nil
+      } else {
+        logger.info(s"Scan resulted in ${findings.size} findings")
+        findings
+      }
+    }
+
+    runOctoscan ++ runInternal
   }
 
   override def close(): Unit = {
