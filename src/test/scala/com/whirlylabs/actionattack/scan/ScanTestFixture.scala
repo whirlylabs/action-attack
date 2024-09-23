@@ -1,7 +1,7 @@
 package com.whirlylabs.actionattack.scan
 
 import com.whirlylabs.actionattack.Finding
-import com.whirlylabs.actionattack.scan.yaml.{GitHubActionsWorkflow, YamlScanner, yamlToJson, runScans}
+import com.whirlylabs.actionattack.scan.yaml.{GitHubActionsWorkflow, YamlScanner, runScans, yamlToJson}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 import org.scalatest.{BeforeAndAfterAll, BeforeAndAfterEach, Inside}
