@@ -65,11 +65,51 @@ class CommandInjectionTests extends YamlScanTestFixture(CommandInjectionScanner(
         |""".stripMargin)
 
     inside(findings) { case f1 :: _ =>
-      f1.message shouldBe "'echo-body' has command injection at 'echo '${{ github.event.pages.blah.page_name }}''"
+      f1.message shouldBe "'echo-body' has command injection at 'echo '${{ github.event.pages.blah.pag[...]'"
       f1.snippet shouldBe Option("echo '${{ github.event.pages.blah.page_name }}'")
       f1.kind shouldBe "command-injection"
       f1.line shouldBe 6
       f1.column shouldBe 12
+    }
+  }
+
+  "a source that is not interpolated should not produce a finding" in {
+    val findings = workflow("""on: issue_comment
+        |
+        |jobs:
+        |  echo-body:
+        |    runs-on: ubuntu-latest
+        |    steps:
+        |     - run: |
+        |        echo 'github.event.pages.blah.page_name'
+        |""".stripMargin)
+
+    findings shouldBe empty
+  }
+
+  "a sink within a `with` should produce a finding" in {
+    val findings = workflow("""on: issue_comment
+        |
+        |jobs:
+        |  issue-title:
+        |    runs-on: ubuntu-latest
+        |    steps:
+        |      - name: Setting title
+        |        uses: actions/github-script@v7
+        |        id: vars
+        |        with:
+        |          script: |
+        |            core.setOutput('issue_title', ${{ github.event.issue.title }}.replaceAll(/"/g, '\\"'));
+        |""".stripMargin)
+
+    inside(findings) { case f1 :: _ =>
+      f1.message shouldBe "'issue-title' has command injection at 'core.setOutput('issue_title', ${{ git[...]'"
+      f1.snippet shouldBe Option(
+        "core.setOutput('issue_title', ${{ github.event.issue.title }}.replaceAll(/\"/g, '\\\\\"'));"
+      )
+      f1.kind shouldBe "command-injection"
+      f1.line shouldBe 10
+      f1.column shouldBe 18
     }
   }
 
