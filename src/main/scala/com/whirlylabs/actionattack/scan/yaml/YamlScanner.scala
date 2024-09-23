@@ -15,10 +15,6 @@ trait YamlScanner {
     * @return
     *   any findings, if any.
     */
-  def scan(
-    actionsFile: GitHubActionsWorkflow,
-    commitSha: String = "<unknown>",
-    filepath: String = "<unknown>"
-  ): List[Finding]
+  def scan(actionsFile: GitHubActionsWorkflow, commitSha: String, filepath: String): List[Finding]
 
 }

@@ -31,7 +31,7 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
           cloneRepo(repository, commit) match {
             case Success(repoPath) =>
               try {
-                val findings = runScan(repoPath)
+                val findings = runScan(repoPath, commit)
                 db.storeResults(commit, findings)
               } catch {
                 case e: Exception =>
@@ -74,7 +74,7 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
     targetDir
   }
 
-  private def runScan(repositoryPath: Path): List[Finding] = {
+  private def runScan(repositoryPath: Path, commit: Commit): List[Finding] = {
 
     def isYAMLFile(path: Path): Boolean = {
       val fileName = path.getFileName.toString
@@ -98,7 +98,7 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
         val workflowFiles = candidates
           .flatMap { path =>
             yamlToGHWorkflow(Files.readString(path)) match {
-              case Success(workflow) => Option(workflow)
+              case Success(workflow) => Option(path -> workflow)
               case Failure(_: ScannerException) =>
                 logger.warn(s"Unable to parse '$path', it appears to be an invalid YAML file")
                 None
@@ -114,7 +114,10 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
             }
           }
         // Run scans on these files
-        workflowFiles.flatMap(runScans(_, scannersToRun))
+        workflowFiles.flatMap { case (path, actionsFile) =>
+          val relativePath = repositoryPath.relativize(path).toString
+          runScans(actionsFile, scannersToRun, commit.sha, relativePath)
+        }
       } else {
         Nil
       }
