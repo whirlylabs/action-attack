@@ -15,7 +15,7 @@ trait YamlScanTestFixture(scansToRun: List[YamlScanner] = Nil) extends ScanTestF
   def workflow(code: String): List[Finding] = {
     yamlToGHWorkflow(code) match {
       case Failure(exception) => fail("Unable to parse workflow file!", exception)
-      case Success(workflow)  => runScans(workflow, scansToRun)
+      case Success(workflow)  => runScans(workflow, scansToRun, "<unknown>", "<unknown>")
     }
   }
 

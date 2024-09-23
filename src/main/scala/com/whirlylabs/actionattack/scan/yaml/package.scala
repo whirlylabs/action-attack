@@ -15,8 +15,13 @@ package object yaml {
     read[GitHubActionsWorkflow](scalaJson)
   }
 
-  def runScans(actionsFile: GitHubActionsWorkflow, scans: List[YamlScanner] = Nil): List[Finding] = {
-    scans.flatMap(_.scan(actionsFile))
+  def runScans(
+    actionsFile: GitHubActionsWorkflow,
+    scans: List[YamlScanner] = Nil,
+    commitSha: String,
+    filepath: String
+  ): List[Finding] = {
+    scans.flatMap(_.scan(actionsFile, commitSha, filepath))
   }
 
   sealed trait ActionNode {

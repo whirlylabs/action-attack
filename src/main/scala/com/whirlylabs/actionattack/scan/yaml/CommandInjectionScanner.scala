@@ -5,14 +5,10 @@ class CommandInjectionScanner extends YamlScanner {
 
   override val kind: String = "command-injection"
 
-  override def scan(
-    actionsFile: GitHubActionsWorkflow,
-    commitSha: String = "<unknown>",
-    filepath: String = "<unknown>"
-  ): List[Finding] = {
+  override def scan(actionsFile: GitHubActionsWorkflow, commitSha: String, filepath: String): List[Finding] = {
     actionsFile.jobs
-      .flatMap { case (jobName, job) => findCommandInjections(job).map(a => jobName -> a) }
-      .map { case (jobName, actionNode) =>
+      .flatMap { case (jobName, job) => findCommandInjections(jobName, job) }
+      .map { case CommandInjectionFinding(jobName, actionNode, kind) =>
         val rawSnippet    = actionNode.code.strip()
         val shortenedCode = if (rawSnippet.sizeIs > 40) s"${rawSnippet.take(37)}[...]" else rawSnippet
         Finding(
@@ -29,14 +25,18 @@ class CommandInjectionScanner extends YamlScanner {
       .toList
   }
 
-  private def findCommandInjections(job: Job): List[ActionNode] = {
+  private case class CommandInjectionFinding(jobName: String, node: ActionNode, kind: String)
+
+  private def findCommandInjections(jobName: String, job: Job): List[CommandInjectionFinding] = {
     job.steps
       .flatMap(step => step.sinks.map(sink => sink -> step.env))
       .flatMap {
         case (sink: InterpolatedString, env: Map[String, YamlString]) =>
           // TODO: May want to make this more precise feedback
-          if (hasDirectInjection(sink) || hasAliasedInjection(sink, env)) {
-            Option(sink)
+          if (hasDirectInjection(sink)) {
+            Option(CommandInjectionFinding(jobName, sink, s"$kind-direct"))
+          } else if (hasAliasedInjection(sink, env)) {
+            Option(CommandInjectionFinding(jobName, sink, s"$kind-aliased"))
           } else {
             None
           }
