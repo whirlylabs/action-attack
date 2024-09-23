@@ -98,6 +98,12 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
           .flatMap { path =>
             yamlToGHWorkflow(Files.readString(path)) match {
               case Success(workflow) => Option(workflow)
+              case Failure(e) if !path.getParent.equals(githubPath) =>
+                logger.debug(
+                  s"Unable to parse '$path' as a GitHub workflow file, however it's likely that it's not one",
+                  e
+                )
+                None
               case Failure(e) =>
                 logger.warn(s"Unable to parse '$path' as a GitHub workflow file", e)
                 None

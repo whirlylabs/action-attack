@@ -239,7 +239,14 @@ package object yaml {
           val stepsOpt = if map.contains("steps") then x("steps").arr else ArrayBuffer.empty
           val steps    = if stepsOpt.isEmpty then Nil else read[List[Step]](stepsOpt.head)
           val runsOn = if map.contains("runs-on") then {
+            // `runs-on` is the wild west
             x("runs-on") match {
+              case r: ujson.Obj if r.obj.contains("labels") =>
+                r.obj("labels") match {
+                  case labels: ujson.Str => read[YamlString](labels) :: Nil
+                  case labels: ujson.Arr => labels.value.head.arr.map(read[YamlString](_)).toList
+                  case _                 => Nil
+                }
               case r: ujson.Obj => read[YamlString](r) :: Nil
               case r: ujson.Arr => r.value.head.arr.map(read[YamlString](_)).toList
               case _            => Nil
