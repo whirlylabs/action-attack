@@ -11,7 +11,8 @@ libraryDependencies ++= Seq(
   "org.yaml" % "snakeyaml" % Versions.snakeYaml,
   "org.xerial" % "sqlite-jdbc" % Versions.sqlite,
   "org.apache.logging.log4j" % "log4j-slf4j2-impl" % Versions.log4j % Optional,
-  "org.scalatest" %% "scalatest" % Versions.scalaTest % Test
+  "org.scalatest" %% "scalatest" % Versions.scalaTest % Test,
+  "com.olvind.tui" %% "tui" % "0.0.7"
 )
 
 assembly / assemblyMergeStrategy := {

@@ -1,5 +1,6 @@
 package com.whirlylabs.actionattack
 
+import com.whirlylabs.actionattack.ui.TUIRunner
 import org.slf4j.LoggerFactory
 
 import java.nio.file.Path
@@ -29,7 +30,26 @@ class ActionAttack(config: Config) {
             logger.error("No GitHub token given or found under `.env`, exiting...")
             sys.exit(1)
         }
-      case OperatingMode.Review => logger.warn("Unimplemented")
+      case OperatingMode.Review =>
+        config.ghToken.orElse {
+          val envFile = Path.of(".env")
+          if (Files.exists(envFile)) {
+            Option(Files.readString(envFile).trim)
+          } else {
+            None
+          }
+        } match {
+          case Some(token) if !token.startsWith("github_pat_") =>
+            logger.error("Invalid GitHub token given or found under `.env`, exiting...")
+            sys.exit(1)
+          case Some(token) =>
+            val unvalidatedFindings = db.getUnvalidatedFindingsForReview
+            if unvalidatedFindings.isEmpty then logger.info("No findings for review")
+            else TUIRunner().run(db, unvalidatedFindings, token)
+          case None =>
+            logger.error("No GitHub token given or found under `.env`, exiting...")
+            sys.exit(1)
+        }
       case OperatingMode.Report =>
         if (config.dbPath.isEmpty) {
           logger.error("Database path not set, no results to generate a report from")
