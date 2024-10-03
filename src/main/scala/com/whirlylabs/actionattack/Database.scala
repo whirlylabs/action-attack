@@ -148,7 +148,7 @@ class Database(location: Option[Path] = None) extends AutoCloseable {
     */
   def updateFinding(findingId: Int, valid: Boolean): Unit = {
     Using.resource(
-      connection.prepareStatement("UPDATE finding SET valid = ?, validatedByUser = ?, valid = ? WHERE id = ?")
+      connection.prepareStatement("UPDATE finding SET valid = ?, validatedByUser = ? WHERE id = ?")
     ) { stmt =>
       stmt.setBoolean(1, valid)
       stmt.setBoolean(2, true)
