@@ -105,11 +105,12 @@ class Database(location: Option[Path] = None) extends AutoCloseable {
     *   the finding descriptions.
     */
   def storeResults(commit: Commit, results: List[Finding]): Unit = {
-    results.foreach { case Finding(_, _, _, message, filepath, line, column, columnEnd, snippet, kind) =>
+    results.foreach { case Finding(_, _, _, _, message, filepath, line, column, columnEnd, snippet, kind) =>
       Using.resource(connection.prepareStatement("""
           |INSERT INTO finding(
           | commit_sha,
           | valid,
+          | validatedByUser,
           | message,
           | filepath,
           | line,
@@ -117,23 +118,49 @@ class Database(location: Option[Path] = None) extends AutoCloseable {
           | column_end,
           | snippet,
           | kind
-          |) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);
+          |) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
           |""".stripMargin)) { stmt =>
         stmt.setString(1, commit.sha)
         stmt.setBoolean(2, false)
-        stmt.setString(3, message)
-        stmt.setString(4, filepath)
-        stmt.setInt(5, line)
-        stmt.setInt(6, column)
-        stmt.setInt(7, columnEnd)
-        stmt.setString(8, snippet.orNull)
-        stmt.setString(9, kind)
+        stmt.setBoolean(3, false)
+        stmt.setString(4, message)
+        stmt.setString(5, filepath)
+        stmt.setInt(6, line)
+        stmt.setInt(7, column)
+        stmt.setInt(8, columnEnd)
+        stmt.setString(9, snippet.orNull)
+        stmt.setString(10, kind)
         stmt.execute()
       }
     }
     Using.resource(connection.prepareStatement("UPDATE commits SET scanned = ? WHERE sha = ?")) { stmt =>
       stmt.setBoolean(1, true)
       stmt.setString(2, commit.sha)
+      stmt.execute()
+    }
+  }
+
+  /** Updates finding validated by user via the TUI
+    * @param findingId
+    *   id of the finding that needs to be updated
+    * @param valid
+    *   whether the finding is valid or not (determined by user)
+    */
+  def updateFinding(findingId: Int, valid: Boolean): Unit = {
+    Using.resource(
+      connection.prepareStatement("UPDATE finding SET valid = ?, validatedByUser = ?, valid = ? WHERE id = ?")
+    ) { stmt =>
+      stmt.setBoolean(1, valid)
+      stmt.setBoolean(2, true)
+      stmt.setInt(3, findingId)
+      stmt.execute()
+    }
+  }
+
+  def updateCommit(commitSha: String): Unit = {
+    Using.resource(connection.prepareStatement("UPDATE commits SET validated = ? WHERE sha = ?")) { stmt =>
+      stmt.setBoolean(1, true)
+      stmt.setString(2, commitSha)
       stmt.execute()
     }
   }
@@ -154,6 +181,24 @@ class Database(location: Option[Path] = None) extends AutoCloseable {
   }
 
   /** @return
+    *   all repositories with unvalidated and vulnerable commits.
+    */
+  private def getRepositoriesWithUnvalidatedAndVulnerableCommits: List[Repository] = {
+    Using.resource(
+      connection
+        .prepareStatement("""SELECT * FROM repository INNER JOIN commits on repository.id = commits.repository_id
+          | INNER JOIN finding on finding.commit_sha = commits.sha
+          | WHERE finding.validatedByUser = ?
+          | AND commits.validated = ?
+          |""".stripMargin)
+    ) { stmt =>
+      stmt.setBoolean(1, false)
+      stmt.setBoolean(2, false)
+      Using.resource(stmt.executeQuery())(Repository.fromResultSet)
+    }
+  }
+
+  /** @return
     *   all commits linked to validated and vulnerable findings for the given repository.
     */
   private def getCommitsWithValidatedAndVulnerableFindings(repository: Repository): List[Commit] = {
@@ -165,6 +210,19 @@ class Database(location: Option[Path] = None) extends AutoCloseable {
       stmt.setInt(1, repository.id)
       stmt.setBoolean(2, true)
       stmt.setBoolean(3, true)
+      Using.resource(stmt.executeQuery())(Commit.fromResultSet)
+    }
+  }
+
+  private def getCommitsWithUnvalidatedAndVulnerableFindings(repository: Repository): List[Commit] = {
+    Using.resource(
+      connection.prepareStatement(
+        "SELECT * FROM repository INNER JOIN commits ON repository.id = commits.repository_id INNER JOIN finding ON finding.commit_sha = commits.sha WHERE repository.id = ? AND commits.validated = ? AND finding.validatedByUser = ?"
+      )
+    ) { stmt =>
+      stmt.setInt(1, repository.id)
+      stmt.setBoolean(2, false)
+      stmt.setBoolean(3, false)
       Using.resource(stmt.executeQuery())(Commit.fromResultSet)
     }
   }
@@ -191,6 +249,18 @@ class Database(location: Option[Path] = None) extends AutoCloseable {
     }
   }
 
+  private def getUnvalidatedFindings(commit: Commit): List[Finding] = {
+    Using.resource(
+      connection.prepareStatement(
+        "SELECT * FROM finding INNER JOIN commits ON finding.commit_sha = commits.sha WHERE finding.validatedByUser = ? AND commits.sha = ?"
+      )
+    ) { stmt =>
+      stmt.setBoolean(1, false)
+      stmt.setString(2, commit.sha)
+      Using.resource(stmt.executeQuery())(Finding.fromResultSet)
+    }
+  }
+
   /** @return
     *   all validated findings that are true positives, mapped by their repository and commit.
     */
@@ -199,6 +269,14 @@ class Database(location: Option[Path] = None) extends AutoCloseable {
     getRepositoriesWithValidatedAndVulnerableCommits.map { repository =>
       repository -> getCommitsWithValidatedAndVulnerableFindings(repository).map { commit =>
         commit -> getVulnerableFindings(commit)
+      }.toMap
+    }.toMap
+  }
+
+  def getUnvalidatedFindingsForReview: Map[Repository, Map[Commit, List[Finding]]] = {
+    getRepositoriesWithUnvalidatedAndVulnerableCommits.map { repository =>
+      repository -> getCommitsWithUnvalidatedAndVulnerableFindings(repository).map { commit =>
+        commit -> getUnvalidatedFindings(commit)
       }.toMap
     }.toMap
   }
@@ -230,7 +308,7 @@ object Database {
   val schema: List[String] = List(
     "CREATE TABLE IF NOT EXISTS repository (id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT, name TEXT, UNIQUE(owner, name))",
     "CREATE TABLE IF NOT EXISTS commits (sha TEXT PRIMARY KEY, scanned BOOLEAN, validated BOOLEAN, repository_id INTEGER, FOREIGN KEY(repository_id) REFERENCES repository(id))",
-    "CREATE TABLE IF NOT EXISTS finding (id INTEGER PRIMARY KEY AUTOINCREMENT, commit_sha TEXT, valid BOOLEAN, message TEXT, filepath TEXT, line INT, column INT, column_end INT, snippet TEXT, kind TEXT, FOREIGN KEY(commit_sha) REFERENCES commits(commit_sha))"
+    "CREATE TABLE IF NOT EXISTS finding (id INTEGER PRIMARY KEY AUTOINCREMENT, commit_sha TEXT, valid BOOLEAN, validatedByUser BOOLEAN, message TEXT, filepath TEXT, line INT, column INT, column_end INT, snippet TEXT, kind TEXT, FOREIGN KEY(commit_sha) REFERENCES commits(commit_sha))"
   )
 
 }
@@ -276,6 +354,8 @@ case class Commit(sha: String, scanned: Boolean, validated: Boolean, repositoryI
   *   the related commit.
   * @param valid
   *   if the finding is valid. This field is only considered if the related commit has been validated.
+  * @param validatedByUser
+  *   if the finding has been validated by a user or not
   * @param message
   *   the finding description.
   * @param filepath
@@ -289,6 +369,7 @@ case class Finding(
   id: Int = -1,
   commitSha: String = "",
   valid: Boolean = false,
+  validatedByUser: Boolean = false,
   message: String,
   filepath: String,
   line: Int,
