@@ -1,6 +1,5 @@
 package com.whirlylabs.actionattack
 
-import com.whirlylabs.actionattack.Demo.{ParagraphExample, TUIDemo}
 import com.whirlylabs.actionattack.ui.TUIRunner
 import org.slf4j.LoggerFactory
 
