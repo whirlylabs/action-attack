@@ -65,12 +65,13 @@ object UI {
         Constraint.Percentage(15), // FILEPATH Column
         Constraint.Percentage(10)  // SHA Column
       ),
-      highlightSymbol = Some(""),
+      highlightSymbol = Some(">"),
+      highlightStyle = Style.DEFAULT.fg(Color.Green),
       header = Some(header),
       rows = rows
     )
 
-    f.renderWidget(tableWidget, area)
+    f.renderStatefulWidget(tableWidget, area)(TableWidget.State(0, Some(0)))
   }
 
   def drawFileRender(f: Frame, app: Application, area: Rect): Unit = {
