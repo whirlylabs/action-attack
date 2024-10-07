@@ -41,6 +41,8 @@ class TUIRunner {
               case char: tui.crossterm.KeyCode.Char => app.on_key(char.c())
               case _: tui.crossterm.KeyCode.Up      => app.on_up()
               case _: tui.crossterm.KeyCode.Down    => app.on_down()
+              case _: tui.crossterm.KeyCode.Left    => app.on_left()
+              case _: tui.crossterm.KeyCode.Right   => app.on_right()
               case _                                => ()
             }
           case _ => ()
