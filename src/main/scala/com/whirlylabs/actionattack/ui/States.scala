@@ -133,7 +133,7 @@ case class RepositoryStatefulList(
       this.tableStates(currentRepo).items.remove(getTableStateIdx)
     } else {
       db.updateCommit(currentFinding.commitSha)
-      this.state.select(Option(getRepositoryIdx + 1))
+      this.items.remove(getRepositoryIdx)
     }
 
     updateFile()
