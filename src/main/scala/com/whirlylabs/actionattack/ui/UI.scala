@@ -101,14 +101,17 @@ object UI {
 
     val lines = Text.fromSpans(
       splitLines.zipWithIndex.map((line, index) =>
-        if highlightNextLine then
+        if (highlightNextLine) {
           highlightNextLine = false
           Spans.styled(line, Style.DEFAULT.fg(Color.Red).addModifier(Modifier.BOLD))
-        else if index != (currentFile.offendingLine.toInt - 1) then Spans.nostyle(line)
-        else if index == currentFile.offendingLine.toInt - 1 && line.strip == "{" then
+        } else if (index != (currentFile.offendingLine.toInt - 1)) {
+          Spans.nostyle(line)
+        } else if (index == currentFile.offendingLine.toInt - 1 && line.strip == "{") {
           highlightNextLine = true
           Spans.nostyle(line)
-        else Spans.styled(line, Style.DEFAULT.fg(Color.Red).addModifier(Modifier.BOLD))
+        } else {
+          Spans.styled(line, Style.DEFAULT.fg(Color.Red).addModifier(Modifier.BOLD))
+        }
       )*
     )
 

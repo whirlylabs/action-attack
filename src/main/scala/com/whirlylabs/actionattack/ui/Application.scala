@@ -8,6 +8,7 @@ import tui.widgets.{ListWidget, TableWidget}
 
 import scala.collection.mutable
 import scala.reflect.ClassTag
+import scala.util.{Failure, Success, Try}
 
 case class TableItem(
   findingId: Int,

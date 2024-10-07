@@ -129,10 +129,12 @@ case class RepositoryStatefulList(
 
     db.updateFinding(currentFinding.findingId, valid)
 
-    if this.tableStates(currentRepo).items.length > 1 then this.tableStates(currentRepo).items.remove(getTableStateIdx)
-    else
+    if (this.tableStates(currentRepo).items.length > 1) {
+      this.tableStates(currentRepo).items.remove(getTableStateIdx)
+    } else {
       db.updateCommit(currentFinding.commitSha)
       this.state.select(Option(getRepositoryIdx + 1))
+    }
 
     updateFile()
   }
