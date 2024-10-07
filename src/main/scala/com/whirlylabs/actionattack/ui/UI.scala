@@ -25,11 +25,19 @@ object UI {
       .map(i => ListWidget.Item(content = Text.nostyle(i.toString)))
       .toArray
 
+    val highlightStyle =
+      if app.activePane == SelectedPane.ResultsPane then Style.DEFAULT.addModifier(Modifier.BOLD).fg(Color.Green)
+      else Style.DEFAULT
+
+    val highlightSymbol =
+      if app.activePane == SelectedPane.ResultsPane then Some("> ")
+      else Some("")
+
     val tasks = ListWidget(
       items = items,
       block = Some(titleBlock),
-      highlightStyle = Style.DEFAULT.addModifier(Modifier.BOLD),
-      highlightSymbol = Some("> ")
+      highlightStyle = highlightStyle,
+      highlightSymbol = highlightSymbol
     )
 
     f.renderStatefulWidget(tasks, area)(app.resultSummaryList.state)
@@ -41,7 +49,7 @@ object UI {
 
     val headers: Array[Array[String]] = Array(Array("MESSAGE", "LINE", "COLUMN", "KIND", "FILEPATH", "SHA"))
 
-    val findings = app.resultSummaryList.getTableItems
+    val findings = app.resultSummaryList.getCurrentTableSelectedState.items
 
     val rows = findings.map { item =>
       val itemString = item.toTableString
@@ -55,6 +63,14 @@ object UI {
       (headers(0)).map(h => TableWidget.Cell(Text.nostyle(h), style = Style(fg = Some(Color.Red))))
     val header = TableWidget.Row(cells = header_cells, style = Style(bg = Some(Color.Blue)))
 
+    val highlightStyle =
+      if app.activePane == SelectedPane.FindingsTablePane then Style.DEFAULT.fg(Color.Green)
+      else Style.DEFAULT
+
+    val highlightSymbol =
+      if app.activePane == SelectedPane.FindingsTablePane then Some(">")
+      else Some("")
+
     val tableWidget = TableWidget(
       block = Some(titleBlock),
       widths = Array(
@@ -65,13 +81,13 @@ object UI {
         Constraint.Percentage(15), // FILEPATH Column
         Constraint.Percentage(10)  // SHA Column
       ),
-      highlightSymbol = Some(">"),
-      highlightStyle = Style.DEFAULT.fg(Color.Green),
+      highlightSymbol = highlightSymbol,
+      highlightStyle = highlightStyle,
       header = Some(header),
       rows = rows
     )
 
-    f.renderStatefulWidget(tableWidget, area)(TableWidget.State(0, Some(0)))
+    f.renderStatefulWidget(tableWidget, area)(app.resultSummaryList.getCurrentTableSelectedState.state)
   }
 
   def drawFileRender(f: Frame, app: Application, area: Rect): Unit = {
@@ -81,9 +97,17 @@ object UI {
     val currentFile = app.resultSummaryList.getCurrentFile
     val splitLines  = currentFile.fileContent.split("\n")
 
+    var highlightNextLine = false
+
     val lines = Text.fromSpans(
       splitLines.zipWithIndex.map((line, index) =>
-        if index != (currentFile.offendingLine.toInt - 1) then Spans.nostyle(line)
+        if highlightNextLine then
+          highlightNextLine = false
+          Spans.styled(line, Style.DEFAULT.fg(Color.Red).addModifier(Modifier.BOLD))
+        else if index != (currentFile.offendingLine.toInt - 1) then Spans.nostyle(line)
+        else if index == currentFile.offendingLine.toInt - 1 && line.strip == "{" then
+          highlightNextLine = true
+          Spans.nostyle(line)
         else Spans.styled(line, Style.DEFAULT.fg(Color.Red).addModifier(Modifier.BOLD))
       )*
     )
@@ -92,6 +116,7 @@ object UI {
     // file block
     val lineHeight      = (lines.height / splitLines.size)
     val numLinesInBlock = area.height / lineHeight
+
     val scrollLine =
       if currentFile.offendingLine.toInt > numLinesInBlock then (currentFile.offendingLine.toInt - numLinesInBlock + 10)
       else 0

@@ -147,13 +147,12 @@ class Database(location: Option[Path] = None) extends AutoCloseable {
     *   whether the finding is valid or not (determined by user)
     */
   def updateFinding(findingId: Int, valid: Boolean): Unit = {
-    Using.resource(
-      connection.prepareStatement("UPDATE finding SET valid = ?, validatedByUser = ? WHERE id = ?")
-    ) { stmt =>
-      stmt.setBoolean(1, valid)
-      stmt.setBoolean(2, true)
-      stmt.setInt(3, findingId)
-      stmt.execute()
+    Using.resource(connection.prepareStatement("UPDATE finding SET valid = ?, validatedByUser = ? WHERE id = ?")) {
+      stmt =>
+        stmt.setBoolean(1, valid)
+        stmt.setBoolean(2, true)
+        stmt.setInt(3, findingId)
+        stmt.execute()
     }
   }
 
