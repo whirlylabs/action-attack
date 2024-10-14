@@ -98,7 +98,11 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
         val workflowFiles = candidates
           .flatMap { path =>
             yamlToGHWorkflow(Files.readString(path)) match {
-              case Success(workflow) => Option(path -> workflow)
+              case Success(workflow) if workflow.on.vulnerableTriggers.isEmpty =>
+                logger.debug(s"$path contains no easily exploitable triggers")
+                None
+              case Success(workflow) =>
+                Option(path -> workflow)
               case Failure(_: ScannerException) =>
                 logger.warn(s"Unable to parse '$path', it appears to be an invalid YAML file")
                 None
