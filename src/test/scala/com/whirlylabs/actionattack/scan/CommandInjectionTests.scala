@@ -8,7 +8,7 @@ class CommandInjectionTests extends YamlScanTestFixture(CommandInjectionScanner(
     val findings = workflow("""
         |name: CI
         |on:
-        |  push:
+        |  pull_request:
         |    branches:
         |      - main
         |

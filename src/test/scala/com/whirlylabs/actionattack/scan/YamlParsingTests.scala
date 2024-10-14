@@ -1,6 +1,6 @@
 package com.whirlylabs.actionattack.scan
 
-import com.whirlylabs.actionattack.scan.yaml.yamlToGHWorkflow
+import com.whirlylabs.actionattack.scan.yaml.*
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -12,7 +12,7 @@ class YamlParsingTests extends AnyWordSpec with Matchers {
     yamlToGHWorkflow("""
         |name: Docs Deployment
         |
-        |on: [push]
+        |on: [pull_request]
         |
         |jobs:
         |  deploy:
@@ -53,7 +53,7 @@ class YamlParsingTests extends AnyWordSpec with Matchers {
   "parsing a file where `runs-on` is an array should pass" in {
     yamlToGHWorkflow("""
         |name: Run E2E Tests
-        |on: [push]
+        |on: [pull_request]
         |jobs:
         |  run-e2e:
         |    runs-on: [ubuntu-22.04]
@@ -164,6 +164,78 @@ class YamlParsingTests extends AnyWordSpec with Matchers {
       case Failure(_) => succeed
       case Success(_) => fail("This is invalid YAML")
     }
+  }
+
+  "GH triggers" should {
+
+    val workflowFile = yamlToGHWorkflow("""
+        |name: Multi-Event-Trigger Workflow
+        |
+        |on:
+        |  pull_request:
+        |    types: [opened, synchronize, reopened, closed]
+        |  pull_request_target:
+        |    types: [opened, synchronize, reopened, closed]
+        |  issues:
+        |    types: [opened, edited, labeled]
+        |  issue_comment:
+        |    types: [created, edited]
+        |  discussion:
+        |    types: [created, answered, labeled]
+        |  discussion_comment:
+        |    types: [created, edited]
+        |
+        |jobs:
+        |  multi-event-job:
+        |    runs-on: ubuntu-latest
+        |    steps:
+        |      - name: Checkout code
+        |        uses: actions/checkout@v3
+        |
+        |      - name: Run for pull_request
+        |        if: ${{ github.event_name == 'pull_request' }}
+        |        run: echo "Triggered by a pull request event!"
+        |
+        |      - name: Run for pull_request_target
+        |        if: ${{ github.event_name == 'pull_request_target' }}
+        |        run: echo "Triggered by a pull request target event!"
+        |
+        |      - name: Run for pull_request_trigger (custom event)
+        |        if: ${{ github.event_name == 'repository_dispatch' && github.event.action == 'pull_request_trigger' }}
+        |        run: echo "Triggered by a custom pull_request_trigger event!"
+        |
+        |""".stripMargin).get
+
+    "parse `pull_request`" in {
+      workflowFile.on.vulnerableTriggers should contain(VulnerableTrigger.PullRequest)
+      workflowFile.on.location.line shouldBe 4
+    }
+
+    "parse `pull_request_target`" in {
+      workflowFile.on.vulnerableTriggers should contain(VulnerableTrigger.PullRequestTarget)
+      workflowFile.on.location.line shouldBe 4
+    }
+
+    "parse `issues`" in {
+      workflowFile.on.vulnerableTriggers should contain(VulnerableTrigger.Issues)
+      workflowFile.on.location.line shouldBe 4
+    }
+
+    "parse `issue_comment`" in {
+      workflowFile.on.vulnerableTriggers should contain(VulnerableTrigger.IssueComment)
+      workflowFile.on.location.line shouldBe 4
+    }
+
+    "parse `discussion`" in {
+      workflowFile.on.vulnerableTriggers should contain(VulnerableTrigger.Discussion)
+      workflowFile.on.location.line shouldBe 4
+    }
+
+    "parse `discussion_comment`" in {
+      workflowFile.on.vulnerableTriggers should contain(VulnerableTrigger.DiscussionComment)
+      workflowFile.on.location.line shouldBe 4
+    }
+
   }
 
 }
