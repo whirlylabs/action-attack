@@ -81,21 +81,15 @@ package object yaml {
               case _ => actionsLocation
             }
             val workflowTrigger = onNode match {
-              case on: ujson.Obj => read[WorkflowTrigger](on)
+              case on: ujson.Obj =>
+                val enabledTriggers = on.obj.keySet.flatMap(VulnerableTrigger.fromString).toSet
+                WorkflowTrigger(enabledTriggers, onLocation)
               case on: ujson.Arr =>
-                var trigger = WorkflowTrigger(location = onLocation)
-                on.value.head.arr.map(read[YamlString](_)).foreach { yamlString =>
-                  yamlString.value match {
-                    case "push" =>
-                      trigger = trigger.copy(push = Option(Push(location = yamlString.location)))
-                    case "pull_request" =>
-                      trigger = trigger.copy(pullRequest = Option(PullRequest(location = yamlString.location)))
-                    case "issues" =>
-                      trigger = trigger.copy(issues = Option(Issues(location = yamlString.location)))
-                    case _ => None
-                  }
-                }
-                trigger
+                val enabledTriggers = on.value.head.arr
+                  .map(read[YamlString](_))
+                  .flatMap(yamlString => VulnerableTrigger.fromString(yamlString.value))
+                  .toSet
+                WorkflowTrigger(enabledTriggers, onLocation)
               case _ => WorkflowTrigger(location = onLocation)
             }
 
@@ -112,13 +106,9 @@ package object yaml {
       x => write(x),
       {
         case x: ujson.Obj =>
-          val map = x.obj
-          WorkflowTrigger(
-            push = if map.contains("push") then Option(read[Push](x("push"))) else None,
-            pullRequest = if map.contains("pull") then Option(read[PullRequest](x("pull"))) else None,
-            issues = if map.contains("issues") then Option(read[Issues](x("issues"))) else None,
-            location = read[Location](x("location"))
-          )
+          val map             = x.obj
+          val enabledTriggers = map.keySet.flatMap(VulnerableTrigger.fromString).toSet
+          WorkflowTrigger(enabledTriggers, read[Location](x("location")))
         case x => throw new RuntimeException(s"`Push` expects an object, not ${x.getClass}")
       }
     )
@@ -265,17 +255,9 @@ package object yaml {
          |""".stripMargin
   }
 
-  case class WorkflowTrigger(
-    push: Option[Push] = None,
-    @upickle.implicits.key("pull_request") pullRequest: Option[PullRequest] = None,
-    issues: Option[Issues] = None,
-    location: Location
-  ) extends ActionNode {
-    def code: String =
-      s"""push: ${push.map(_.code).getOrElse("<unspecified>")}
-        |pull_request: ${pullRequest.map(_.code).getOrElse("<unspecified>")}
-        |issues: ${issues.map(_.code).getOrElse("<unspecified>")}
-        |""".stripMargin
+  case class WorkflowTrigger(vulnerableTriggers: Set[VulnerableTrigger] = Set.empty, location: Location)
+      extends ActionNode {
+    def code: String = vulnerableTriggers.map(t => s"$t: (...)").mkString("\n")
   }
 
   case class Push(branches: List[YamlString] = Nil, location: Location) extends ActionNode {
@@ -340,5 +322,18 @@ package object yaml {
   }
 
   case class Location(line: Int = -1, column: Int = -1, lineEnd: Int = -1, columnEnd: Int = -1) derives ReadWriter
+
+  enum VulnerableTrigger(val name: String) {
+    case PullRequest       extends VulnerableTrigger("pull_request")
+    case PullRequestTarget extends VulnerableTrigger("pull_request_target")
+    case Issues            extends VulnerableTrigger("issues")
+    case IssueComment      extends VulnerableTrigger("issue_comment")
+    case Discussion        extends VulnerableTrigger("discussion")
+    case DiscussionComment extends VulnerableTrigger("discussion_comment")
+  }
+
+  object VulnerableTrigger {
+    def fromString(input: String): Option[VulnerableTrigger] = VulnerableTrigger.values.find(_.name == input)
+  }
 
 }

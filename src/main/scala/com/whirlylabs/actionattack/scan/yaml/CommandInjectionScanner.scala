@@ -94,9 +94,9 @@ object CommandInjectionScanner {
     ExactLiteralSource("github.event.pull_request.head.ref"),
     ExactLiteralSource("github.event.pull_request.head.label"),
     ExactLiteralSource("github.event.pull_request.head.repo.default_branch"),
-    ExactLiteralSource("github.head_ref"),
-    RegexLiteralSource("steps\\..*\\.outputs\\..*"),
-    RegexLiteralSource("needs\\..*\\.outputs\\..*")
+    ExactLiteralSource("github.head_ref")
+//    RegexLiteralSource("steps\\..*\\.outputs\\..*"), // fixme: These are low-confidence rules
+//    RegexLiteralSource("needs\\..*\\.outputs\\..*")
   )
 
   sealed trait AttackerControlledSource {
