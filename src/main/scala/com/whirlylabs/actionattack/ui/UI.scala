@@ -98,10 +98,14 @@ object UI {
     val splitLines  = currentFile.fileContent.split("\n")
 
     var highlightNextLine = false
+    var downloadingFile   = false
 
     val lines = Text.fromSpans(
       splitLines.zipWithIndex.map((line, index) =>
-        if (highlightNextLine) {
+        if (line == "DOWNLOADING FILE") {
+          downloadingFile = true
+          Spans.styled(line, Style.DEFAULT.fg(Color.Green).addModifier(Modifier.BOLD))
+        } else if (highlightNextLine) {
           highlightNextLine = false
           Spans.styled(line, Style.DEFAULT.fg(Color.Red).addModifier(Modifier.BOLD))
         } else if (index != (currentFile.offendingLine.toInt - 1)) {
@@ -125,7 +129,9 @@ object UI {
       else 0
 
     val pgWidget =
-      ParagraphWidget(text = lines, block = Some(titleBlock), alignment = Alignment.Left, scroll = (scrollLine, 0))
+      if downloadingFile then
+        ParagraphWidget(text = lines, block = Some(titleBlock), alignment = Alignment.Center, scroll = (scrollLine, 0))
+      else ParagraphWidget(text = lines, block = Some(titleBlock), alignment = Alignment.Left, scroll = (scrollLine, 0))
 
     f.renderWidget(pgWidget, area)
   }

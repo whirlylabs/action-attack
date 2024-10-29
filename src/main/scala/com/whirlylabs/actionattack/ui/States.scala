@@ -1,12 +1,12 @@
 package com.whirlylabs.actionattack.ui
 
 import com.whirlylabs.actionattack.*
-
 import org.slf4j.LoggerFactory
-
 import tui.*
 import tui.widgets.{ListWidget, TableWidget}
 
+import java.util.concurrent.ForkJoinPool
+import java.util.concurrent.ForkJoinPool.ManagedBlocker
 import scala.collection.mutable
 import scala.util.{Failure, Success, Try}
 
@@ -138,14 +138,28 @@ case class RepositoryStatefulList(
 
     updateFile()
   }
+  import scala.concurrent.{Future, ExecutionContext}
+  import ExecutionContext.Implicits.global
 
-  private def updateFile(): ActionAttackFile = {
+  private def getFile: Future[ActionAttackFile] = Future {
     val repo     = this.items(getRepositoryIdx)
     val findings = this.tableStates(repo).items(getTableStateIdx)
 
     val fileContent =
       getFileFromGh(repo, findings.commitSha, findings.filePath)
-    this.currentFile = ActionAttackFile(fileContent.getOrElse(""), findings.line.toString)
+    ActionAttackFile(fileContent.getOrElse(""), findings.line.toString)
+  }
+
+  private def updateFile(): ActionAttackFile = {
+    this.currentFile = ActionAttackFile("DOWNLOADING FILE", "0")
+
+    getFile.onComplete {
+      case Success(file) =>
+        this.currentFile = file
+      case Failure(err) =>
+        this.currentFile = ActionAttackFile("Something went wrong: ", "0")
+    }
+
     this.currentFile
   }
 
