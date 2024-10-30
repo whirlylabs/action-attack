@@ -39,6 +39,9 @@ case class RepositoryStatefulList(
   token: String,
   db: Database
 ) {
+  val DOWNLOADING_FILE         = "DOWNLOADING_FILE"
+  val DOWNLOADING_FILE_LINE_NR = "0"
+
   private val logger                                        = LoggerFactory.getLogger(this.getClass)
   private val tableStates: Map[Repository, TableItemsState] = generateTableStates()
   private var currentFile: ActionAttackFile                 = updateFile()
@@ -151,7 +154,7 @@ case class RepositoryStatefulList(
   }
 
   private def updateFile(): ActionAttackFile = {
-    this.currentFile = ActionAttackFile("DOWNLOADING FILE", "0")
+    this.currentFile = ActionAttackFile(DOWNLOADING_FILE, DOWNLOADING_FILE_LINE_NR)
 
     getFile.onComplete {
       case Success(file) =>

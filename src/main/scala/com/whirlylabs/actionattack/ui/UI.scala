@@ -102,7 +102,7 @@ object UI {
 
     val lines = Text.fromSpans(
       splitLines.zipWithIndex.map((line, index) =>
-        if (line == "DOWNLOADING FILE") {
+        if (line == app.resultSummaryList.DOWNLOADING_FILE) {
           downloadingFile = true
           Spans.styled(line, Style.DEFAULT.fg(Color.Green).addModifier(Modifier.BOLD))
         } else if (highlightNextLine) {
