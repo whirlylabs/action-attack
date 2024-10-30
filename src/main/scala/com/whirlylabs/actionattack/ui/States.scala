@@ -39,8 +39,8 @@ case class RepositoryStatefulList(
   token: String,
   db: Database
 ) {
-  val DOWNLOADING_FILE         = "DOWNLOADING_FILE"
-  val DOWNLOADING_FILE_LINE_NR = "0"
+  val DOWNLOADING_FILE = "DOWNLOADING_FILE"
+  val ERROR_FILE       = "Something went wrong"
 
   private val logger                                        = LoggerFactory.getLogger(this.getClass)
   private val tableStates: Map[Repository, TableItemsState] = generateTableStates()
@@ -160,7 +160,7 @@ case class RepositoryStatefulList(
       case Success(file) =>
         this.currentFile = file
       case Failure(err) =>
-        this.currentFile = ActionAttackFile("Something went wrong: ", None)
+        this.currentFile = ActionAttackFile(s"$ERROR_FILE: ${err.getCause}", None)
     }
 
     this.currentFile
