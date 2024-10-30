@@ -94,8 +94,9 @@ object UI {
     val title      = Spans.from(Span.styled("FILE", Style.DEFAULT.addModifier(Modifier.BOLD)))
     val titleBlock = BlockWidget(borders = Borders.ALL, title = Some(title))
 
-    val currentFile = app.resultSummaryList.getCurrentFile
-    val splitLines  = currentFile.fileContent.split("\n")
+    val currentFile   = app.resultSummaryList.getCurrentFile
+    val splitLines    = currentFile.fileContent.split("\n")
+    val offendingLine = currentFile.offendingLine.map(_.toInt).getOrElse(-1)
 
     var highlightNextLine = false
     var downloadingFile   = false
@@ -108,9 +109,9 @@ object UI {
         } else if (highlightNextLine) {
           highlightNextLine = false
           Spans.styled(line, Style.DEFAULT.fg(Color.Red).addModifier(Modifier.BOLD))
-        } else if (index != (currentFile.offendingLine.toInt - 1)) {
+        } else if (index != (offendingLine - 1)) {
           Spans.nostyle(line)
-        } else if (index == currentFile.offendingLine.toInt - 1 && line.strip == "{") {
+        } else if (index == offendingLine - 1 && line.strip == "{") {
           highlightNextLine = true
           Spans.nostyle(line)
         } else {
@@ -125,7 +126,7 @@ object UI {
     val numLinesInBlock = area.height / lineHeight
 
     val scrollLine =
-      if currentFile.offendingLine.toInt > numLinesInBlock then (currentFile.offendingLine.toInt - numLinesInBlock + 10)
+      if offendingLine > numLinesInBlock then (offendingLine - numLinesInBlock + 10)
       else 0
 
     val pgWidget =

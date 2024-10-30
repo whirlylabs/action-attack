@@ -150,17 +150,17 @@ case class RepositoryStatefulList(
 
     val fileContent =
       getFileFromGh(repo, findings.commitSha, findings.filePath)
-    ActionAttackFile(fileContent.getOrElse(""), findings.line.toString)
+    ActionAttackFile(fileContent.getOrElse(""), Some(findings.line.toString))
   }
 
   private def updateFile(): ActionAttackFile = {
-    this.currentFile = ActionAttackFile(DOWNLOADING_FILE, DOWNLOADING_FILE_LINE_NR)
+    this.currentFile = ActionAttackFile(DOWNLOADING_FILE, None)
 
     getFile.onComplete {
       case Success(file) =>
         this.currentFile = file
       case Failure(err) =>
-        this.currentFile = ActionAttackFile("Something went wrong: ", "0")
+        this.currentFile = ActionAttackFile("Something went wrong: ", None)
     }
 
     this.currentFile
