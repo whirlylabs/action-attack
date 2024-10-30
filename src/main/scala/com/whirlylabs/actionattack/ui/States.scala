@@ -1,12 +1,12 @@
 package com.whirlylabs.actionattack.ui
 
 import com.whirlylabs.actionattack.*
-
 import org.slf4j.LoggerFactory
-
 import tui.*
 import tui.widgets.{ListWidget, TableWidget}
 
+import java.util.concurrent.ForkJoinPool
+import java.util.concurrent.ForkJoinPool.ManagedBlocker
 import scala.collection.mutable
 import scala.util.{Failure, Success, Try}
 
@@ -39,6 +39,9 @@ case class RepositoryStatefulList(
   token: String,
   db: Database
 ) {
+  val DOWNLOADING_FILE = "DOWNLOADING_FILE"
+  val ERROR_FILE       = "Something went wrong"
+
   private val logger                                        = LoggerFactory.getLogger(this.getClass)
   private val tableStates: Map[Repository, TableItemsState] = generateTableStates()
   private var currentFile: ActionAttackFile                 = updateFile()
@@ -133,19 +136,33 @@ case class RepositoryStatefulList(
       this.tableStates(currentRepo).items.remove(getTableStateIdx)
     } else {
       db.updateCommit(currentFinding.commitSha)
-      this.state.select(Option(getRepositoryIdx + 1))
+      this.items.remove(getRepositoryIdx)
     }
 
     updateFile()
   }
+  import scala.concurrent.{Future, ExecutionContext}
+  import ExecutionContext.Implicits.global
 
-  private def updateFile(): ActionAttackFile = {
+  private def getFile: Future[ActionAttackFile] = Future {
     val repo     = this.items(getRepositoryIdx)
     val findings = this.tableStates(repo).items(getTableStateIdx)
 
     val fileContent =
       getFileFromGh(repo, findings.commitSha, findings.filePath)
-    this.currentFile = ActionAttackFile(fileContent.getOrElse(""), findings.line.toString)
+    ActionAttackFile(fileContent.getOrElse(""), Some(findings.line.toString))
+  }
+
+  private def updateFile(): ActionAttackFile = {
+    this.currentFile = ActionAttackFile(DOWNLOADING_FILE, None)
+
+    getFile.onComplete {
+      case Success(file) =>
+        this.currentFile = file
+      case Failure(err) =>
+        this.currentFile = ActionAttackFile(s"$ERROR_FILE: ${err.getCause}", None)
+    }
+
     this.currentFile
   }
 

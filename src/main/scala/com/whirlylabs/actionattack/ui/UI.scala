@@ -94,19 +94,27 @@ object UI {
     val title      = Spans.from(Span.styled("FILE", Style.DEFAULT.addModifier(Modifier.BOLD)))
     val titleBlock = BlockWidget(borders = Borders.ALL, title = Some(title))
 
-    val currentFile = app.resultSummaryList.getCurrentFile
-    val splitLines  = currentFile.fileContent.split("\n")
+    val currentFile   = app.resultSummaryList.getCurrentFile
+    val splitLines    = currentFile.fileContent.split("\n")
+    val offendingLine = currentFile.offendingLine.map(_.toInt).getOrElse(-1)
 
     var highlightNextLine = false
+    var processingFile    = false
 
     val lines = Text.fromSpans(
       splitLines.zipWithIndex.map((line, index) =>
-        if (highlightNextLine) {
+        if (line == app.resultSummaryList.DOWNLOADING_FILE) {
+          processingFile = true
+          Spans.styled(line, Style.DEFAULT.fg(Color.Green).addModifier(Modifier.BOLD))
+        } else if (line.startsWith(app.resultSummaryList.ERROR_FILE)) {
+          processingFile = true
+          Spans.styled(line, Style.DEFAULT.fg(Color.Red).addModifier(Modifier.BOLD))
+        } else if (highlightNextLine) {
           highlightNextLine = false
           Spans.styled(line, Style.DEFAULT.fg(Color.Red).addModifier(Modifier.BOLD))
-        } else if (index != (currentFile.offendingLine.toInt - 1)) {
+        } else if (index != (offendingLine - 1)) {
           Spans.nostyle(line)
-        } else if (index == currentFile.offendingLine.toInt - 1 && line.strip == "{") {
+        } else if (index == offendingLine - 1 && line.strip == "{") {
           highlightNextLine = true
           Spans.nostyle(line)
         } else {
@@ -121,11 +129,13 @@ object UI {
     val numLinesInBlock = area.height / lineHeight
 
     val scrollLine =
-      if currentFile.offendingLine.toInt > numLinesInBlock then (currentFile.offendingLine.toInt - numLinesInBlock + 10)
+      if offendingLine > numLinesInBlock then (offendingLine - numLinesInBlock + 10)
       else 0
 
     val pgWidget =
-      ParagraphWidget(text = lines, block = Some(titleBlock), alignment = Alignment.Left, scroll = (scrollLine, 0))
+      if processingFile then
+        ParagraphWidget(text = lines, block = Some(titleBlock), alignment = Alignment.Center, scroll = (scrollLine, 0))
+      else ParagraphWidget(text = lines, block = Some(titleBlock), alignment = Alignment.Left, scroll = (scrollLine, 0))
 
     f.renderWidget(pgWidget, area)
   }

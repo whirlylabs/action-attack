@@ -24,7 +24,7 @@ case class TableItem(
   }
 }
 
-case class ActionAttackFile(fileContent: String, offendingLine: String)
+case class ActionAttackFile(fileContent: String, offendingLine: Option[String])
 
 case class Application(
   title: String,
