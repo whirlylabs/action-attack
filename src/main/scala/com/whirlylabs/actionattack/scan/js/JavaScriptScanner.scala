@@ -9,7 +9,7 @@ import io.shiftleft.codepropertygraph.generated.nodes.*
 import io.shiftleft.semanticcpg.language.*
 import io.shiftleft.semanticcpg.layers.LayerCreatorContext
 import org.slf4j.LoggerFactory
-
+import io.joern.x2cpg.X2Cpg.stripQuotes
 import java.nio.file.Path
 import scala.util.{Failure, Success}
 
@@ -41,18 +41,25 @@ class JavaScriptScanner(input: Either[Path, Cpg]) {
   }
 
   def runScan: List[JavaScriptFinding] = {
-    def source = cpg.literal.whereNot(_.code(".*@actions/core.*"))
-    def githubInputFetchCall = (trav: Iterator[AstNode]) =>
+    def source = cpg.literal.whereNot(_.inCall.nameExact("require", "import"))
+    def githubInputFetchCall = { (trav: Iterator[AstNode]) =>
       trav.isCall.methodFullName(".*@actions/core.*").nameExact("getInput").argument(1).ast
+    }
     def sinks = {
       val fsCalls = cpg.call
         .nameExact("createReadStream", "writeFileSync", "createWriteStream", "open")
         .where(_.receiver.fieldAccess.argument(1).isIdentifier.nameExact("fs"))
-      val rceCalls = cpg.call.nameExact("exec", "eval")
+        .argument
+        .where(_.argumentIndexGte(1))
+      val rceCalls = cpg.call.nameExact("exec", "eval").argument(1)
       val requests =
-        cpg.call.code(".*http.*").where(_.receiver.fieldAccess.argument(1).isIdentifier.nameExact("http", "https"))
+        cpg.call
+          .code(".*http.*")
+          .where(_.receiver.fieldAccess.argument(1).isIdentifier.nameExact("http", "https"))
+          .argument
+          .where(_.argumentIndexGte(1))
 
-      (fsCalls ++ rceCalls ++ requests).argument(1)
+      fsCalls ++ rceCalls ++ requests
     }
     sinks
       .reachableByFlows(source)
@@ -71,7 +78,7 @@ class JavaScriptScanner(input: Either[Path, Cpg]) {
             .hasLabel(Call.Label)
             .cast[Call]
             .lastOption
-            .map(sink => JavaScriptFinding(head.code, sink.name, sink.code, sink.lineNumber.get))
+            .map(sink => JavaScriptFinding(stripQuotes(head.code), sink.name, sink.code, sink.lineNumber.get))
         case _ => None
       }
       .toList
