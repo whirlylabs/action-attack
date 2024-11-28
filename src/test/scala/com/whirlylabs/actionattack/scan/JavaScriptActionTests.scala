@@ -65,4 +65,69 @@ class JavaScriptActionTests extends DataFlowCodeToCpgSuite with Inside {
     }
   }
 
+  "Remote Code Execution via eval" in {
+    val cpg = code("""
+        |const core = require('@actions/core');
+        |
+        |async function run() {
+        |  try {
+        |    const userInput = core.getInput('script'); // Input from 'with' in YAML
+        |    eval(userInput); // Dangerous function usage
+        |  } catch (error) {
+        |    core.setFailed(`Evaluation failed: ${error.message}`);
+        |  }
+        |}
+        |
+        |run();
+        |""".stripMargin)
+
+    inside(JavaScriptScanner(cpg).runScan) { case JavaScriptFinding(inputKey, sinkCall, sinkCode, lineNo) :: Nil =>
+      inputKey shouldBe "script"
+      sinkCall shouldBe "eval"
+      sinkCode should startWith("eval(userInput)")
+      lineNo shouldBe 7
+    }
+  }
+
+  "HTTP Request Manipulation via https" in {
+    val cpg = code("""const core = require('@actions/core');
+        |const https = require('https');
+        |
+        |async function run() {
+        |  try {
+        |    const queryParam = core.getInput('query-param'); // Input from 'with' in YAML
+        |    const options = {
+        |      hostname: 'example.com',
+        |      path: `/search?q=${queryParam}`, // Unsafe interpolation
+        |      method: 'GET'
+        |    };
+        |
+        |    const req = https.request(options, res => {
+        |      res.on('data', d => {
+        |        process.stdout.write(d);
+        |      });
+        |    });
+        |
+        |    req.on('error', error => {
+        |      core.setFailed(`Request failed: ${error.message}`);
+        |    });
+        |
+        |    req.end();
+        |  } catch (error) {
+        |    core.setFailed(error.message);
+        |  }
+        |}
+        |
+        |run();
+        |
+        |""".stripMargin)
+
+    inside(JavaScriptScanner(cpg).runScan) { case JavaScriptFinding(inputKey, sinkCall, sinkCode, lineNo) :: Nil =>
+      inputKey shouldBe "query-param"
+      sinkCall shouldBe "request"
+      sinkCode should startWith("https.request(options")
+      lineNo shouldBe 13
+    }
+  }
+
 }
