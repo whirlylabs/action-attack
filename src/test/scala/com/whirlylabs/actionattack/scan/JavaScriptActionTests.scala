@@ -1,13 +1,13 @@
 package com.whirlylabs.actionattack.scan
 
-import com.whirlylabs.actionattack.scan.js.JavaScriptScanner
-import io.joern.jssrc2cpg.testfixtures.AstJsSrc2CpgSuite
+import com.whirlylabs.actionattack.scan.js.{JavaScriptFinding, JavaScriptScanner}
+import io.joern.jssrc2cpg.testfixtures.DataFlowCodeToCpgSuite
+import org.scalatest.Inside
 
-class JavaScriptActionTests extends AstJsSrc2CpgSuite {
-  
+class JavaScriptActionTests extends DataFlowCodeToCpgSuite with Inside {
+
   "command injection via `child_process`.exec" in {
-    val cpg = code(
-      """
+    val cpg = code("""
         |const core = require('@actions/core');
         |const exec = require('child_process').exec;
         |
@@ -29,7 +29,13 @@ class JavaScriptActionTests extends AstJsSrc2CpgSuite {
         |run();
         |
         |""".stripMargin)
-    JavaScriptScanner(cpg).runScan.size shouldBe 1
+
+    inside(JavaScriptScanner(cpg).runScan) { case JavaScriptFinding(inputKey, sinkCall, sinkCode, lineNo) :: Nil =>
+      inputKey shouldBe "\"command\""
+      sinkCall shouldBe "exec"
+      sinkCode should startWith("exec(`echo ${userInput}`")
+      lineNo shouldBe 8
+    }
   }
-  
+
 }

@@ -10,8 +10,8 @@ import java.nio.file.Path
 import scala.util.Try
 
 object JavaScriptParser {
-  
-  def createCpg(inputDir: Path):  Try[Cpg] = {
+
+  def createCpg(inputDir: Path): Try[Cpg] = {
     val config = JsSrcConfig().withInputPath(inputDir.toString)
     JsSrc2Cpg().createCpgWithOverlays(config).map(runPostProcessingOverlays)
   }
@@ -21,6 +21,5 @@ object JavaScriptParser {
     jssrc2cpg.postProcessingPasses(cpg, XTypeRecoveryConfig()).foreach(_.createAndApply())
     cpg
   }
-
 
 }

@@ -5,7 +5,7 @@ import io.joern.dataflowengineoss.queryengine.EngineContext
 import io.joern.x2cpg.layers.{Base, CallGraph, ControlFlow, TypeRelations}
 import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.language.*
-import io.shiftleft.codepropertygraph.generated.nodes.{AstNode, Literal}
+import io.shiftleft.codepropertygraph.generated.nodes.*
 import io.shiftleft.semanticcpg.language.*
 import io.shiftleft.semanticcpg.layers.LayerCreatorContext
 import org.slf4j.LoggerFactory
@@ -15,7 +15,7 @@ import scala.util.{Failure, Success}
 
 class JavaScriptScanner(input: Either[Path, Cpg]) {
 
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger                                = LoggerFactory.getLogger(getClass)
   private implicit val engineContext: EngineContext = EngineContext()
 
   private val cpg = input match {
@@ -25,7 +25,7 @@ class JavaScriptScanner(input: Either[Path, Cpg]) {
           throw new RuntimeException(s"Unable to successfully create CPG from given input '$inputDir'", exception)
         case Success(cpg) => cpg
       }
-    case Right(cpg) => 
+    case Right(cpg) =>
       if (!cpg.metaData.overlays.contains("base")) {
         logger.info("Base overlays not detected, applying")
         val context = new LayerCreatorContext(cpg)
@@ -41,7 +41,7 @@ class JavaScriptScanner(input: Either[Path, Cpg]) {
   }
 
   def runScan: List[JavaScriptFinding] = {
-    def source = cpg.literal
+    def source = cpg.literal.whereNot(_.code(".*@actions/core.*"))
     def githubInputFetchCall = (trav: Iterator[AstNode]) =>
       trav.isCall.methodFullName(".*@actions/core.*").nameExact("getInput").argument(1).ast
     def sinks = {
@@ -59,8 +59,19 @@ class JavaScriptScanner(input: Either[Path, Cpg]) {
       .passes(githubInputFetchCall)
       .flatMap {
         case io.joern.dataflowengineoss.language.Path((head: Literal) :: elements) =>
-          val sink = elements.isCall.last
-          Option(JavaScriptFinding(head.code, sink.name, sink.code, sink.lineNumber.get))
+          elements
+            .repeat(_._astIn)(
+              _.emit.until(
+                _.and(
+                  _.hasLabel(Call.Label),
+                  _.not(_.propertiesMap.filter(x => Option(x.get("NAME")).exists(_.toString.startsWith("<operator"))))
+                )
+              )
+            )
+            .hasLabel(Call.Label)
+            .cast[Call]
+            .lastOption
+            .map(sink => JavaScriptFinding(head.code, sink.name, sink.code, sink.lineNumber.get))
         case _ => None
       }
       .toList
