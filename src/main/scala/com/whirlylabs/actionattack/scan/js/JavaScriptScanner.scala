@@ -13,6 +13,8 @@ import io.joern.x2cpg.X2Cpg.stripQuotes
 import java.nio.file.Path
 import scala.util.{Failure, Success}
 
+import io.joern.dataflowengineoss.language.Path as DataFlowPath
+
 class JavaScriptScanner(input: Either[Path, Cpg]) {
 
   private val logger                                = LoggerFactory.getLogger(getClass)
@@ -41,47 +43,83 @@ class JavaScriptScanner(input: Either[Path, Cpg]) {
   }
 
   def runScan: List[JavaScriptFinding] = {
-    def source = cpg.literal.whereNot(_.inCall.nameExact("require", "import"))
-    def githubInputFetchCall = { (trav: Iterator[AstNode]) =>
-      trav.isCall.methodFullName(".*@actions/core.*").nameExact("getInput").argument(1).ast
-    }
-    def sinks = {
-      val fsCalls = cpg.call
-        .nameExact("createReadStream", "writeFileSync", "createWriteStream", "open")
-        .where(_.receiver.fieldAccess.argument(1).isIdentifier.nameExact("fs"))
-        .argument
-        .where(_.argumentIndexGte(1))
-      val rceCalls = cpg.call.nameExact("exec", "eval").argument(1)
-      val requests =
-        cpg.call
-          .code(".*http.*")
-          .where(_.receiver.fieldAccess.argument(1).isIdentifier.nameExact("http", "https"))
-          .argument
-          .where(_.argumentIndexGte(1))
-
-      fsCalls ++ rceCalls ++ requests
-    }
-    sinks
+    val flowsToDangerousSinks = dangerousSinks
       .reachableByFlows(source)
       .passes(githubInputFetchCall)
-      .flatMap {
-        case io.joern.dataflowengineoss.language.Path((head: Literal) :: elements) =>
-          elements
-            .repeat(_._astIn)(
-              _.emit.until(
-                _.and(
-                  _.hasLabel(Call.Label),
-                  _.not(_.propertiesMap.filter(x => Option(x.get("NAME")).exists(_.toString.startsWith("<operator"))))
-                )
+      .flatMap(pathToFinding(_, false))
+      .toList
+
+    val flowsToOutputSinks = gitHubActionsOutputSinks
+      .reachableByFlows(source)
+      .passes(githubInputFetchCall)
+      .flatMap(pathToFinding(_, true))
+      .toList
+
+    flowsToDangerousSinks ++ flowsToOutputSinks
+  }
+
+  private def pathToFinding(path: DataFlowPath, definesOutput: Boolean): Option[JavaScriptFinding] = {
+    path match {
+      case DataFlowPath((head: Literal) :: elements) =>
+        elements
+          .repeat(_._astIn)(
+            _.emit.until(
+              _.and(
+                _.hasLabel(Call.Label),
+                _.not(_.propertiesMap.filter(x => Option(x.get("NAME")).exists(_.toString.startsWith("<operator"))))
               )
             )
-            .hasLabel(Call.Label)
-            .cast[Call]
-            .lastOption
-            .map(sink => JavaScriptFinding(stripQuotes(head.code), sink.name, sink.code, sink.lineNumber.get))
-        case _ => None
-      }
-      .toList
+          )
+          .hasLabel(Call.Label)
+          .cast[Call]
+          .lastOption
+          .map { sink =>
+            if (definesOutput) {
+              JavaScriptFinding(
+                stripQuotes(head.code),
+                stripQuotes(sink.argument(1).code),
+                sink.code,
+                sink.lineNumber.get,
+                definesOutput
+              )
+            } else {
+              JavaScriptFinding(stripQuotes(head.code), sink.name, sink.code, sink.lineNumber.get, definesOutput)
+            }
+          }
+      case _ => None
+    }
+  }
+
+  /** Some literal that does not refine an import.
+    */
+  private def source: Iterator[Expression] = cpg.literal.whereNot(_.inCall.nameExact("require", "import"))
+
+  /** The input from GH actions.
+    */
+  private def githubInputFetchCall(trav: Iterator[AstNode]) =
+    trav.isCall.methodFullName(".*@actions/core.*").nameExact("getInput").argument(1).ast
+
+  /** These sinks are dangerous on their own and, if reached, are exploitable largely on their own.
+    */
+  private def dangerousSinks: Iterator[Expression] = {
+    val fsCalls = cpg.call
+      .nameExact("createReadStream", "writeFileSync", "createWriteStream", "open")
+      .where(_.receiver.fieldAccess.argument(1).isIdentifier.nameExact("fs"))
+      .argument
+      .where(_.argumentIndexGte(1))
+    val rceCalls = cpg.call.nameExact("exec", "eval").argument(1)
+    val requests =
+      cpg.call
+        .code(".*http.*")
+        .where(_.receiver.fieldAccess.argument(1).isIdentifier.nameExact("http", "https"))
+        .argument
+        .where(_.argumentIndexGte(1))
+
+    fsCalls ++ rceCalls ++ requests
+  }
+
+  private def gitHubActionsOutputSinks: Iterator[Expression] = {
+    cpg.call.methodFullName(".*@actions/core.*").nameExact("setOutput").argument(2)
   }
 
 }
