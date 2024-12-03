@@ -302,13 +302,118 @@ class Database(location: Option[Path] = None) extends AutoCloseable {
 
 }
 
+/** A semi-type safe database definition
+  */
 object Database {
 
-  val schema: List[String] = List(
-    "CREATE TABLE IF NOT EXISTS repository (id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT, name TEXT, UNIQUE(owner, name))",
-    "CREATE TABLE IF NOT EXISTS commits (sha TEXT PRIMARY KEY, scanned BOOLEAN, validated BOOLEAN, repository_id INTEGER, FOREIGN KEY(repository_id) REFERENCES repository(id))",
-    "CREATE TABLE IF NOT EXISTS finding (id INTEGER PRIMARY KEY AUTOINCREMENT, commit_sha TEXT, valid BOOLEAN, validatedByUser BOOLEAN, message TEXT, filepath TEXT, line INT, column INT, column_end INT, snippet TEXT, kind TEXT, FOREIGN KEY(commit_sha) REFERENCES commits(commit_sha))"
-  )
+  implicit class ColExt(name: String) {
+    def text: String = s"$name TEXT"
+
+    def int: String = s"$name INTEGER"
+
+    def bool: String = s"$name BOOLEAN"
+  }
+
+  private object Columns {
+    val Column          = "column".int
+    val ColumnEnd       = "column_end".int
+    val CommitSha       = "commit_sha".text
+    val DefinesOutput   = "defines_output".text
+    val FilePath        = "filepath".text
+    val Id              = "id".int
+    val InputKey        = "input_key".text
+    val Kind            = "kind".text
+    val Line            = "line".int
+    val Message         = "message".text
+    val Name            = "name".text
+    val Owner           = "owner".text
+    val Scanned         = "scanned".bool
+    val SinkName        = "sink_name".text
+    val Snippet         = "snippet".text
+    val Sha             = "sha".text
+    val Valid           = "valid".bool
+    val Validated       = "validated".bool
+    val ValidatedByUser = "validatedByUser".bool
+    val Version         = "version".text
+  }
+
+  private object TableNames {
+    val TRepository     = "repository"
+    val TCommits        = "commits"
+    val TFinding        = "finding"
+    val TPluginVersions = "plugin_versions"
+    val TPluginFinding  = "plugin_finding"
+  }
+
+  import Columns.*
+  import TableNames.*
+
+  private val AUTOINC = "AUTOINCREMENT"
+  private val REFS    = "REFERENCES"
+
+  private def CREATE_TABLE(tableName: String, columns: List[String]) =
+    s"CREATE TABLE IF NOT EXISTS $tableName (${columns.mkString(",")})"
+  private def PK(name: String, autoInc: Boolean = false) = s"$name PRIMARY KEY ${if autoInc then AUTOINC else ""}"
+  private def UNIQ(names: String*)                       = s"UNIQUE(${names.mkString(", ")})"
+  private def FK(name: String, refTable: String, refCol: String) = s"FOREIGN KEY($name) $REFS $refTable($refCol)"
+
+  private object Tables {
+    val RepositoryTable: String =
+      CREATE_TABLE(TRepository, PK(Id, true) :: Owner :: Name :: UNIQ("owner", "name") :: Nil)
+    val CommitsTable: String =
+      CREATE_TABLE(
+        TCommits,
+        PK(Sha) :: Scanned :: Validated :: "repository_id".int :: FK("repository_id", TRepository, "id") :: Nil
+      )
+    val FindingsTable: String =
+      CREATE_TABLE(
+        TFinding,
+        PK(Id, true)
+          :: CommitSha
+          :: Valid
+          :: ValidatedByUser
+          :: Message
+          :: FilePath
+          :: Line
+          :: Column
+          :: ColumnEnd
+          :: Snippet
+          :: Kind
+          :: FK("commit_sha", TCommits, "sha")
+          :: Nil
+      )
+    val PluginVersionsTable: String =
+      CREATE_TABLE(
+        TPluginVersions,
+        PK(Id, true)
+          :: Version
+          :: Scanned
+          :: Validated
+          :: "repository_id".int
+          :: FK("repository_id", TRepository, "id")
+          :: Nil
+      )
+    val PluginFindingsTable: String =
+      CREATE_TABLE(
+        TPluginFinding,
+        PK(Id, true)
+          :: Valid
+          :: ValidatedByUser
+          :: InputKey
+          :: SinkName
+          :: Snippet
+          :: Line
+          :: DefinesOutput
+          :: "plugin_id".int
+          :: FK("plugin_id", TPluginVersions, "id")
+          :: Nil
+      )
+  }
+
+  import Tables.*
+
+  val schema: List[String] =
+    List(RepositoryTable, CommitsTable, FindingsTable, PluginVersionsTable, PluginFindingsTable)
 
 }
 
