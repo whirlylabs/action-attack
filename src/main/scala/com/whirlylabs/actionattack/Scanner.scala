@@ -28,8 +28,14 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
     while (running) {
       db.getUnscannedActions match {
         case unscannedAction :: _ =>
-          logger.info(s"Running scan on external action ")
-          ExternalActionsScanner.scanExternalAction(db, unscannedAction)
+          db.getRepository(unscannedAction.repositoryId) match {
+            case Some(r) =>
+              logger.info(s"Running scan on external action ${r.owner}/${r.name}@${unscannedAction.version}")
+              ExternalActionsScanner.scanExternalAction(db, unscannedAction)
+            case None =>
+              logger.error("No repository associated with next action to scan, marking complete")
+              db.summarizeAction(unscannedAction.id, Nil)
+          }
         case Nil =>
           db.getNextCommitToScan.foreach { commit =>
             db.getRepository(commit).foreach { repository =>
@@ -46,12 +52,13 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
                     }
                   } catch {
                     case e: Exception =>
-                      logger.error("Exception occurred while running scan & storing results", e)
+                      logger.error("Exception occurred while running scan & storing results, marking as complete", e)
+                      db.storeResults(commit, Nil)
                   } finally {
                     repoPath.delete()
                   }
                 case Failure(exception) =>
-                  logger.error(s"Unable to clone $repository:${commit.sha}", exception)
+                  logger.error(s"Unable to clone $repository:${commit.sha}, marking as complete", exception)
                   db.storeResults(commit, Nil)
               }
             }
@@ -138,22 +145,22 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
     running = false
   }
 
-  implicit class PathExt(pb: Path) {
+}
 
-    /** A version of [[ProcessBuilder.start]] that is blocking
-      *
-      * @return
-      *   the process once it's complete
-      */
-    def delete(): Unit = deleteFileOrDir(pb.toFile)
+implicit class PathExt(pb: Path) {
 
-    private def deleteFileOrDir(file: File): Unit = {
-      Option(file.listFiles).foreach { contents =>
-        contents.filterNot(f => Files.isSymbolicLink(f.toPath)).foreach(deleteFileOrDir)
-      }
-      file.delete
+  /** A version of [[ProcessBuilder.start]] that is blocking
+    *
+    * @return
+    *   the process once it's complete
+    */
+  def delete(): Unit = deleteFileOrDir(pb.toFile)
+
+  private def deleteFileOrDir(file: File): Unit = {
+    Option(file.listFiles).foreach { contents =>
+      contents.filterNot(f => Files.isSymbolicLink(f.toPath)).foreach(deleteFileOrDir)
     }
-
+    file.delete
   }
 
 }

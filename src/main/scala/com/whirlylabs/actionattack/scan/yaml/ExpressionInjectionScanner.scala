@@ -1,6 +1,6 @@
 package com.whirlylabs.actionattack.scan.yaml
 import com.whirlylabs.actionattack.scan.WorkflowAction
-import com.whirlylabs.actionattack.{Action, ActionSummary, Finding}
+import com.whirlylabs.actionattack.{ActionSummary, Finding}
 
 class ExpressionInjectionScanner extends YamlScanner {
 

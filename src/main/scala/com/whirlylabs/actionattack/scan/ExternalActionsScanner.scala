@@ -1,6 +1,7 @@
 package com.whirlylabs.actionattack.scan
 
 import com.whirlylabs.actionattack.scan.js.JavaScriptScanner
+import com.whirlylabs.actionattack.PathExt
 import com.whirlylabs.actionattack.{Action, Database, Repository, Scanner}
 import com.whirlylabs.actionattack.scan.yaml.GitHubActionsWorkflow
 import org.slf4j.LoggerFactory
@@ -38,8 +39,12 @@ object ExternalActionsScanner {
 
         Scanner.cloneRepo(repo, action.version) match {
           case Success(targetDir) =>
-            val results = JavaScriptScanner(targetDir).runScan
-            db.summarizeAction(action.id, results)
+            try {
+              val results = JavaScriptScanner(targetDir).runScan
+              db.summarizeAction(action.id, results)
+            } finally {
+              targetDir.delete()
+            }
           case Failure(e) =>
             logger.warn(s"Error external action $owner/$name@${action.version}", e)
             db.summarizeAction(action.id, Nil)
