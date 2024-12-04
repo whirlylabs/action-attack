@@ -18,7 +18,10 @@ trait YamlScanTestFixture(scansToRun: List[YamlScanner] = Nil) extends ScanTestF
       case Success(workflow)  => workflow
     }
 
-  def findingsForWorkflow(code: String, summaries: Map[WorkflowAction, List[ActionSummary]] = Map.empty): List[Finding] =
+  def findingsForWorkflow(
+    code: String,
+    summaries: Map[WorkflowAction, List[ActionSummary]] = Map.empty
+  ): List[Finding] =
     runScans(workflow(code), scansToRun, "<unknown>", "<unknown>", summaries)
 
 }

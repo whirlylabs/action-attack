@@ -131,7 +131,9 @@ class ExpressionInjectionTests extends YamlScanTestFixture(ExpressionInjectionSc
         |        uses: noob/foo@v1
         |        with:
         |          issue-title: ${{ github.event.issue.title }}
-        |""".stripMargin, actionSummaryStubs)
+        |""".stripMargin,
+      actionSummaryStubs
+    )
 
     inside(findings) { case f1 :: _ =>
       f1.message shouldBe "'issue-title' may define an argument for `exec` (`exec(issueTitle)`) in noob/foo@v1 at input 'issue-title'"

@@ -121,7 +121,7 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
 
     val githubPath = repositoryPath.resolve(".github").resolve("workflows")
     if (Files.exists(githubPath) && Files.isDirectory(githubPath)) {
-      val referencedActions = ExternalActionsScanner.fetchActionsNames(workflowFiles.map(_._2))
+      val referencedActions       = ExternalActionsScanner.fetchActionsNames(workflowFiles.map(_._2))
       val externalActionSummaries = db.getSummariesForReferencedActions(referencedActions)
       // Run scans on these files, filtering out files that don't have vulnerable triggers
       workflowFiles.filter(x => x._2.on.vulnerableTriggers.nonEmpty).flatMap { case (path, actionsFile) =>
