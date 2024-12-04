@@ -48,7 +48,7 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
                       val findings = runScan(repoPath, commit, workflowFiles)
                       db.storeResults(commit, findings)
                     } else {
-                      logger.info(s"$repository @ $commit contains unscanned external actions, returning later...")
+                      logger.info(s"$repository:${commit.sha} contains unscanned external actions, returning later...")
                     }
                   } catch {
                     case e: Exception =>
