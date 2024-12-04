@@ -179,7 +179,7 @@ object Scanner {
     *   the temporary path this repository is checked out to if successful.
     */
   def cloneRepo(repository: Repository, checkoutDestination: String, fetchTags: Boolean = false): Try[Path] = Try {
-    val targetDir = Files.createTempDirectory(s"action-attack-${repository.owner}-${repository.name}-")
+    val targetDir = Files.createTempDirectory(s"action-attack-")
     val repoUrl   = repository.toUrl
     val cloneCmd  = Seq("git", "clone", repoUrl.toString, targetDir.toAbsolutePath.toString, "--depth", "1")
     logger.debug(s"Cloning repository with '${cloneCmd.mkString(" ")}")
