@@ -38,7 +38,8 @@ object ExternalActionsScanner {
 
         Scanner.cloneRepo(repo, action.version) match {
           case Success(targetDir) =>
-            db.summarizeAction(action.id, JavaScriptScanner(targetDir).runScan)
+            val results = JavaScriptScanner(targetDir).runScan
+            db.summarizeAction(action.id, results)
           case Failure(e) =>
             logger.warn(s"Error external action $owner/$name@${action.version}", e)
             db.summarizeAction(action.id, Nil)

@@ -1,6 +1,7 @@
 package com.whirlylabs.actionattack.scan
 
-import com.whirlylabs.actionattack.scan.js.{JavaScriptFinding, JavaScriptScanner}
+import com.whirlylabs.actionattack.scan.JavaScriptFinding
+import com.whirlylabs.actionattack.scan.js.JavaScriptScanner
 import io.joern.jssrc2cpg.testfixtures.DataFlowCodeToCpgSuite
 import org.scalatest.Inside
 

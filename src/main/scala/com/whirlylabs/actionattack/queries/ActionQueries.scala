@@ -42,10 +42,11 @@ trait ActionQueries { this: Database =>
     }
   }
 
-  def updateAction(id: Int, scanned: Boolean): Unit = {
-    Using.resource(connection.prepareStatement("UPDATE actions SET scanned = ? WHERE id = ?")) { stmt =>
+  def updateAction(id: Int, scanned: Boolean, actionType: String = "unknown"): Unit = {
+    Using.resource(connection.prepareStatement("UPDATE actions SET scanned = ?, type = ? WHERE id = ?")) { stmt =>
       stmt.setBoolean(1, scanned)
-      stmt.setInt(2, id)
+      stmt.setString(2, actionType)
+      stmt.setInt(3, id)
       stmt.execute()
     }
   }

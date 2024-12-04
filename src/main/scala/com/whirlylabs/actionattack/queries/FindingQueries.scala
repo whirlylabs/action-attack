@@ -19,7 +19,7 @@ trait FindingQueries { this: Database =>
                                                    |INSERT INTO finding(
                                                    | commit_sha,
                                                    | valid,
-                                                   | validatedByUser,
+                                                   | validated_by_user,
                                                    | message,
                                                    | filepath,
                                                    | line,
