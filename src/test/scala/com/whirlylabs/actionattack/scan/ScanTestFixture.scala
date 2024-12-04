@@ -12,11 +12,13 @@ trait ScanTestFixture extends AnyWordSpec with Matchers with BeforeAndAfterAll w
 
 trait YamlScanTestFixture(scansToRun: List[YamlScanner] = Nil) extends ScanTestFixture {
 
-  def workflow(code: String): List[Finding] = {
+  def workflow(code: String): GitHubActionsWorkflow =
     yamlToGHWorkflow(code) match {
       case Failure(exception) => fail("Unable to parse workflow file!", exception)
-      case Success(workflow)  => runScans(workflow, scansToRun, "<unknown>", "<unknown>")
+      case Success(workflow)  => workflow
     }
-  }
+
+  def findingsForWorkflow(code: String): List[Finding] =
+    runScans(workflow(code), scansToRun, "<unknown>", "<unknown>")
 
 }

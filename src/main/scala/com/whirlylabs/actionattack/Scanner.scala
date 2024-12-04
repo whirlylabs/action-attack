@@ -1,5 +1,7 @@
 package com.whirlylabs.actionattack
 
+import com.whirlylabs.actionattack.Scanner.ProcessExt
+import com.whirlylabs.actionattack.scan.{ExternalActionsScanner, WorkflowAction}
 import com.whirlylabs.actionattack.scan.yaml.{
   CommandInjectionScanner,
   GitHubActionsWorkflow,
@@ -8,13 +10,12 @@ import com.whirlylabs.actionattack.scan.yaml.{
 }
 import org.slf4j.LoggerFactory
 import org.yaml.snakeyaml.scanner.ScannerException
+import upickle.default.*
 
 import java.io.File
 import java.nio.file.{Files, Path}
-import scala.util.{Failure, Success, Try}
-import upickle.default.*
-
 import scala.jdk.CollectionConverters.IteratorHasAsScala
+import scala.util.{Failure, Success, Try}
 
 class Scanner(db: Database) extends Runnable, AutoCloseable {
 
@@ -25,110 +26,48 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
   override def run(): Unit = {
     logger.info("Running scanning jobs in the background...")
     while (running) {
-      db.getNextCommitToScan.foreach { commit =>
-        db.getRepository(commit).foreach { repository =>
-          logger.info(s"Running scan on $repository:${commit.sha}")
-          cloneRepo(repository, commit) match {
-            case Success(repoPath) =>
-              try {
-                val workflowFiles = getWorkflowFiles(repoPath)
-                if !shouldScanPluginRepos(workflowFiles) then
-                  val findings = runScan(repoPath, commit, workflowFiles)
-                  db.storeResults(commit, findings)
-              } catch {
-                case e: Exception =>
-                  logger.error("Exception occurred while running scan & storing results", e)
-              } finally {
-                repoPath.delete()
+      db.getUnscannedActions match {
+        case unscannedAction :: _ =>
+          logger.info(s"Running scan on external action ")
+          ExternalActionsScanner.scanExternalAction(db, unscannedAction)
+        case Nil =>
+          db.getNextCommitToScan.foreach { commit =>
+            db.getRepository(commit).foreach { repository =>
+              logger.info(s"Running scan on $repository:${commit.sha}")
+              Scanner.cloneRepo(repository, commit.sha) match {
+                case Success(repoPath) =>
+                  try {
+                    val workflowFiles = getWorkflowFiles(repoPath)
+                    if (!shouldScanPluginRepos(workflowFiles)) {
+                      val findings = runScan(repoPath, commit, workflowFiles)
+                      db.storeResults(commit, findings)
+                    } else {
+                      logger.info(s"$repository @ $commit contains unscanned external actions, returning later...")
+                    }
+                  } catch {
+                    case e: Exception =>
+                      logger.error("Exception occurred while running scan & storing results", e)
+                  } finally {
+                    repoPath.delete()
+                  }
+                case Failure(exception) =>
+                  logger.error(s"Unable to clone $repository:${commit.sha}", exception)
+                  db.storeResults(commit, Nil)
               }
-            case Failure(exception) =>
-              logger.error(s"Unable to clone $repository:${commit.sha}", exception)
+            }
           }
-        }
       }
       // Avoid overburdening the database
       Thread.sleep(1000)
     }
   }
 
-  private def cloneRepo(repository: Repository, commit: Commit, fetchTags: Boolean = false): Try[Path] = Try {
-    val targetDir = Files.createTempDirectory(s"action-attack-${repository.owner}-${repository.name}-")
-    val repoUrl   = repository.toUrl
-    val cloneCmd  = Seq("git", "clone", repoUrl.toString, targetDir.toAbsolutePath.toString, "--depth", "1")
-    logger.debug(s"Cloning repository with '${cloneCmd.mkString(" ")}")
-    val cloneProcess = ProcessBuilder(cloneCmd*).startBlocking
-    if (cloneProcess.exitValue() != 0) {
-      val msg = new String(cloneProcess.getErrorStream.readAllBytes())
-      throw new RuntimeException(s"Error occurred while cloning repository! Details: $msg")
-    }
-    val fetchCmd     = Seq("git", "fetch", "--depth", "1", "origin", commit.sha)
-    val fetchProcess = ProcessBuilder(fetchCmd*).directory(targetDir.toFile).startBlocking
-    if (fetchProcess.exitValue() != 0) {
-      val msg = new String(fetchProcess.getErrorStream.readAllBytes())
-      throw new RuntimeException(s"Error occurred while fetching the target commit! Details: $msg")
-    }
-    if (fetchTags) {
-      val fetchTagsCmd     = Seq("git", "fetch", "--tags")
-      val fetchProcessTags = ProcessBuilder(fetchTagsCmd*).directory(targetDir.toFile).startBlocking
-      if (fetchProcessTags.exitValue() != 0) {
-        val msg = new String(fetchProcessTags.getErrorStream.readAllBytes())
-        throw new RuntimeException(s"Error occurred while fetching the target commit! Details: $msg")
-      }
-    }
-    val checkoutCmd = Seq("git", "checkout", commit.sha)
-    logger.debug(s"Checkout cmd: ${checkoutCmd.mkString(" ")}")
-    val checkoutProcess = ProcessBuilder(checkoutCmd*).directory(targetDir.toFile).startBlocking
-    if (checkoutProcess.exitValue() != 0) {
-      val msg = new String(checkoutProcess.getErrorStream.readAllBytes())
-      throw new RuntimeException(s"Error occurred while checking out to the target commit! Details: $msg")
-    }
-    targetDir
-  }
-
   private def shouldScanPluginRepos(workflowFiles: List[(Path, GitHubActionsWorkflow)]): Boolean = {
+    ExternalActionsScanner
+      .fetchActionsNames(workflowFiles.map(_._2))
+      .foreach { case WorkflowAction(owner, name, version) => db.queueAction(owner, name, version) }
 
-    /** Gets the names for all the plugins used on this repository
-      * @return
-      *   List of plugin names in the form of `pluginOwner/pluginName@version`
-      */
-    def fetchPluginNames: List[String] = {
-      logger.debug(s"Running check for plugins on repo")
-      // Download plugins on files
-      workflowFiles.flatMap { case (_, actionsFile) =>
-        actionsFile.jobs.values.flatMap { job =>
-          job.steps.map { step =>
-            step.uses.map(_.value.strip).getOrElse("")
-          }
-        }
-      }.distinct
-    }
-
-    val pluginNames = fetchPluginNames
-    // TODO: Check if there are any that need to be downloaded against plugins table
-    val pluginsToDownload = pluginNames.slice(0, 2)
-
-    // TODO: Move this to plugin scanner area once done. We only want to check if we need to scan plugins
-    //  here to early exit or not.
-    val targetDirs = pluginsToDownload.map { plugin =>
-      val Array(ownerRepo, actionVersion) = plugin.split("@")
-      val Array(owner, repoName)          = ownerRepo.split("/")
-
-      val repo   = Repository(id = -1, owner = owner, name = repoName)
-      val commit = Commit(sha = actionVersion, false, false, -1)
-
-      cloneRepo(repo, commit, fetchTags = true) match {
-        case Success(targetDir) =>
-          Some(targetDir)
-        case Failure(e) =>
-          logger.warn(s"Error cloning plugin repo: ${plugin} ${e}")
-          None
-      }
-    }
-
-    logger.info(s"${pluginNames.size} plugins found in repo")
-    // TODO: Uncomment once check against plugins table is implemented
-//    pluginNames.nonEmpty
-    false
+    db.getUnscannedActions.nonEmpty
   }
 
   private def getWorkflowFiles(repositoryPath: Path): List[(Path, GitHubActionsWorkflow)] = {
@@ -233,20 +172,6 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
     running = false
   }
 
-  implicit class ProcessExt(pb: ProcessBuilder) {
-
-    /** A version of [[ProcessBuilder.start]] that is blocking
-      * @return
-      *   the process once it's complete
-      */
-    def startBlocking: Process = {
-      val p = pb.start()
-      while (p.isAlive) { Thread.sleep(100) }
-      p
-    }
-
-  }
-
   implicit class PathExt(pb: Path) {
 
     /** A version of [[ProcessBuilder.start]] that is blocking
@@ -261,6 +186,72 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
         contents.filterNot(f => Files.isSymbolicLink(f.toPath)).foreach(deleteFileOrDir)
       }
       file.delete
+    }
+
+  }
+
+}
+
+object Scanner {
+
+  private val logger = LoggerFactory.getLogger(getClass)
+
+  /** @param repository
+    *   the Git repository
+    * @param checkoutDestination
+    *   the `git checkout` destination. Can be an SHA, tag, branch, etc.
+    * @param fetchTags
+    *   if the Git tags should be fetched. Necessary if `checkoutDestination` is a branch or tag.
+    * @return
+    *   the temporary path this repository is checked out to if successful.
+    */
+  def cloneRepo(repository: Repository, checkoutDestination: String, fetchTags: Boolean = false): Try[Path] = Try {
+    val targetDir = Files.createTempDirectory(s"action-attack-${repository.owner}-${repository.name}-")
+    val repoUrl   = repository.toUrl
+    val cloneCmd  = Seq("git", "clone", repoUrl.toString, targetDir.toAbsolutePath.toString, "--depth", "1")
+    logger.debug(s"Cloning repository with '${cloneCmd.mkString(" ")}")
+    val cloneProcess = ProcessBuilder(cloneCmd*).startBlocking
+    if (cloneProcess.exitValue() != 0) {
+      val msg = new String(cloneProcess.getErrorStream.readAllBytes())
+      throw new RuntimeException(s"Error occurred while cloning repository! Details: $msg")
+    }
+    val fetchCmd     = Seq("git", "fetch", "--depth", "1", "origin", checkoutDestination)
+    val fetchProcess = ProcessBuilder(fetchCmd*).directory(targetDir.toFile).startBlocking
+    if (fetchProcess.exitValue() != 0) {
+      val msg = new String(fetchProcess.getErrorStream.readAllBytes())
+      throw new RuntimeException(s"Error occurred while fetching the target commit! Details: $msg")
+    }
+    if (fetchTags) {
+      val fetchTagsCmd     = Seq("git", "fetch", "--tags")
+      val fetchProcessTags = ProcessBuilder(fetchTagsCmd*).directory(targetDir.toFile).startBlocking
+      if (fetchProcessTags.exitValue() != 0) {
+        val msg = new String(fetchProcessTags.getErrorStream.readAllBytes())
+        throw new RuntimeException(s"Error occurred while fetching the target commit! Details: $msg")
+      }
+    }
+    val checkoutCmd = Seq("git", "checkout", checkoutDestination)
+    logger.debug(s"Checkout cmd: ${checkoutCmd.mkString(" ")}")
+    val checkoutProcess = ProcessBuilder(checkoutCmd*).directory(targetDir.toFile).startBlocking
+    if (checkoutProcess.exitValue() != 0) {
+      val msg = new String(checkoutProcess.getErrorStream.readAllBytes())
+      throw new RuntimeException(s"Error occurred while checking out to the target commit! Details: $msg")
+    }
+    targetDir
+  }
+
+  implicit class ProcessExt(pb: ProcessBuilder) {
+
+    /** A version of [[ProcessBuilder.start]] that is blocking
+      *
+      * @return
+      *   the process once it's complete
+      */
+    def startBlocking: Process = {
+      val p = pb.start()
+      while (p.isAlive) {
+        Thread.sleep(100)
+      }
+      p
     }
 
   }

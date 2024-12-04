@@ -5,7 +5,7 @@ import com.whirlylabs.actionattack.scan.yaml.CommandInjectionScanner
 class CommandInjectionTests extends YamlScanTestFixture(CommandInjectionScanner() :: Nil) {
 
   "a direct command injection should produce a finding" in {
-    val findings = workflow("""
+    val findings = findingsForWorkflow("""
         |name: CI
         |on:
         |  pull_request:
@@ -32,7 +32,7 @@ class CommandInjectionTests extends YamlScanTestFixture(CommandInjectionScanner(
   }
 
   "an aliased command injection should produce a finding" in {
-    val findings = workflow("""on: issue_comment
+    val findings = findingsForWorkflow("""on: issue_comment
         |
         |jobs:
         |  echo-body:
@@ -54,7 +54,7 @@ class CommandInjectionTests extends YamlScanTestFixture(CommandInjectionScanner(
   }
 
   "a source that triggers a regex-based match should produce a finding" in {
-    val findings = workflow("""on: issue_comment
+    val findings = findingsForWorkflow("""on: issue_comment
         |
         |jobs:
         |  echo-body:
@@ -74,7 +74,7 @@ class CommandInjectionTests extends YamlScanTestFixture(CommandInjectionScanner(
   }
 
   "a source that is not interpolated should not produce a finding" in {
-    val findings = workflow("""on: issue_comment
+    val findings = findingsForWorkflow("""on: issue_comment
         |
         |jobs:
         |  echo-body:
@@ -88,7 +88,7 @@ class CommandInjectionTests extends YamlScanTestFixture(CommandInjectionScanner(
   }
 
   "a sink within a `with` should produce a finding" in {
-    val findings = workflow("""on: issue_comment
+    val findings = findingsForWorkflow("""on: issue_comment
         |
         |jobs:
         |  issue-title:
