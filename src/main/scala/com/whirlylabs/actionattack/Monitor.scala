@@ -53,8 +53,6 @@ class Monitor(private val db: Database, private val ghToken: String) {
 }
 
 object Monitor {
-  private val logger                     = LoggerFactory.getLogger(getClass)
-  private val resultBuffer: List[String] = List.empty
 
   /** Generates a code search query. There is <a href="https://github.com/orgs/community/discussions/112338">no regex
     * via search API</a>. :(

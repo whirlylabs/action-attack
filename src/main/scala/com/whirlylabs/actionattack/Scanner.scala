@@ -200,7 +200,7 @@ object Scanner {
     val checkoutProcess = ProcessBuilder(checkoutCmd*).directory(targetDir.toFile).startBlocking
     if (checkoutProcess.exitValue() != 0) {
       val msg = new String(checkoutProcess.getErrorStream.readAllBytes())
-      throw new RuntimeException(s"Error occurred while checking out to the target commit! Details: $msg")
+      logger.warn(s"Error occurred while checking out to the target commit! Using latest instead. Details: $msg")
     }
     targetDir
   }
