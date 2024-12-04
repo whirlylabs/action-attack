@@ -15,7 +15,7 @@ import java.nio.file.Path
 import java.sql.{Connection, DriverManager, ResultSet, SQLException}
 import scala.collection.mutable
 import scala.compiletime.uninitialized
-import scala.util.Using
+import scala.util.{Try, Using}
 
 class Database(location: Option[Path] = None)
     extends AutoCloseable
@@ -324,7 +324,7 @@ object Action {
     while (rs.next()) {
       xs.addOne(
         Action(
-          id = rs.getInt("id"),
+          id = Try(rs.getInt("id")).getOrElse(rs.getInt("actions.id")),
           version = rs.getString("version"),
           scanned = rs.getBoolean("scanned"),
           validated = rs.getBoolean("validated"),
@@ -343,7 +343,7 @@ object ActionSummary {
     while (rs.next()) {
       xs.addOne(
         ActionSummary(
-          id = rs.getInt("id"),
+          id = Try(rs.getInt("id")).getOrElse(rs.getInt("action_summary.id")),
           validated = rs.getBoolean("validated"),
           validatedByUser = rs.getBoolean("validated_by_user"),
           inputKey = rs.getString("input_key"),

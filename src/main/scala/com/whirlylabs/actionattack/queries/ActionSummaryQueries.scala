@@ -41,7 +41,7 @@ trait ActionSummaryQueries { this: Database =>
 
   def getSummariesForAction(action: Action): List[ActionSummary] = {
     Using.resource(connection.prepareStatement("""
-        |SELECT id, valid, validated_by_user, input_key, sink_name, snippet, line, defines_output, action_id
+        |SELECT action_summary.id, valid, validated_by_user, input_key, sink_name, snippet, line, defines_output, action_id
         |FROM action_summary
         |INNER JOIN actions as a ON a.id = action_summary.action_id
         |WHERE a.id = ?

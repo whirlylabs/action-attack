@@ -55,7 +55,7 @@ trait ActionQueries { this: Database =>
   def getActionsFromReferencedActions(actions: List[WorkflowAction]): List[(WorkflowAction, Action)] = {
     actions.flatMap { case w @ WorkflowAction(owner, name, version) =>
       Using.resource(connection.prepareStatement("""
-          |SELECT id, version, scanned, validated, type, repository_id
+          |SELECT actions.id, version, scanned, validated, type, repository_id
           |FROM actions
           |INNER JOIN repository AS r ON r.id = actions.repository_id
           |WHERE actions.version = ? AND r.owner = ? AND r.name = ?
