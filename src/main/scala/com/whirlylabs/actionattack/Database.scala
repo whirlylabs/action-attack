@@ -251,7 +251,7 @@ case class Action(id: Int, version: String, scanned: Boolean, validated: Boolean
 
 case class ActionSummary(
   id: Int,
-  validated: Boolean,
+  valid: Boolean,
   validatedByUser: Boolean,
   inputKey: String,
   sinkName: String,
@@ -344,7 +344,7 @@ object ActionSummary {
       xs.addOne(
         ActionSummary(
           id = Try(rs.getInt("id")).getOrElse(rs.getInt("action_summary.id")),
-          validated = rs.getBoolean("validated"),
+          valid = rs.getBoolean("valid"),
           validatedByUser = rs.getBoolean("validated_by_user"),
           inputKey = rs.getString("input_key"),
           sinkName = rs.getString("sink_name"),
