@@ -1,6 +1,7 @@
 package com.whirlylabs.actionattack.scan.yaml
 
-import com.whirlylabs.actionattack.Finding
+import com.whirlylabs.actionattack.scan.WorkflowAction
+import com.whirlylabs.actionattack.{Action, ActionSummary, Finding}
 
 /** Base trait for YAML scanners.
   */
@@ -15,6 +16,11 @@ trait YamlScanner {
     * @return
     *   any findings, if any.
     */
-  def scan(actionsFile: GitHubActionsWorkflow, commitSha: String, filepath: String): List[Finding]
+  def scan(
+    actionsFile: GitHubActionsWorkflow,
+    commitSha: String,
+    filepath: String,
+    actionSummaries: Map[WorkflowAction, List[ActionSummary]]
+  ): List[Finding]
 
 }

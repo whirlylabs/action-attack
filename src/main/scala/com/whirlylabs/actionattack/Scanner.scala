@@ -3,7 +3,7 @@ package com.whirlylabs.actionattack
 import com.whirlylabs.actionattack.Scanner.ProcessExt
 import com.whirlylabs.actionattack.scan.{ExternalActionsScanner, WorkflowAction}
 import com.whirlylabs.actionattack.scan.yaml.{
-  CommandInjectionScanner,
+  ExpressionInjectionScanner,
   GitHubActionsWorkflow,
   runScans,
   yamlToGHWorkflow
@@ -116,55 +116,21 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
     commit: Commit,
     workflowFiles: List[(Path, GitHubActionsWorkflow)]
   ): List[Finding] = {
-    def runInternal: List[Finding] = {
-      // TODO: Scanners to run should be configurable
-      lazy val scannersToRun = CommandInjectionScanner() :: Nil
+    // TODO: Scanners to run should be configurable
+    lazy val scannersToRun = ExpressionInjectionScanner() :: Nil
 
-      val githubPath = repositoryPath.resolve(".github").resolve("workflows")
-      if (Files.exists(githubPath) && Files.isDirectory(githubPath)) {
-        // TODO: Re-check this filtering once we have plugin vulnerability scanning done
-        // Run scans on these files, filtering out files that don't have vulnerable triggers
-        workflowFiles.filter(x => x._2.on.vulnerableTriggers.nonEmpty).flatMap { case (path, actionsFile) =>
-          val relativePath = repositoryPath.relativize(path).toString
-          runScans(actionsFile, scannersToRun, commit.sha, relativePath)
-        }
-      } else {
-        Nil
+    val githubPath = repositoryPath.resolve(".github").resolve("workflows")
+    if (Files.exists(githubPath) && Files.isDirectory(githubPath)) {
+      val referencedActions = ExternalActionsScanner.fetchActionsNames(workflowFiles.map(_._2))
+      val externalActionSummaries = db.getSummariesForReferencedActions(referencedActions)
+      // Run scans on these files, filtering out files that don't have vulnerable triggers
+      workflowFiles.filter(x => x._2.on.vulnerableTriggers.nonEmpty).flatMap { case (path, actionsFile) =>
+        val relativePath = repositoryPath.relativize(path).toString
+        runScans(actionsFile, scannersToRun, commit.sha, relativePath, externalActionSummaries)
       }
+    } else {
+      Nil
     }
-
-    def runOctoscan: List[Finding] = {
-      // Run scan with octoscan with suggested config
-      val args = Seq(
-        "octoscan",
-        "scan",
-        ".",
-        "--disable-rules",
-        "shellcheck,local-action",
-        "--filter-triggers",
-        "external",
-        "--json"
-      )
-      logger.debug(s"Running scan with $args")
-      val pb      = ProcessBuilder(args*).directory(repositoryPath.toFile)
-      val process = pb.startBlocking
-      val result  = new String(process.getInputStream.readAllBytes())
-      logger.debug(s"Scan complete with exit code ${process.exitValue()}")
-      val findings = read[List[Finding]](result)
-      if (process.exitValue() == 0) {
-        // This means no findings
-        Nil
-      } else if (process.exitValue() != 2) {
-        // This means error
-        logger.error(result)
-        Nil
-      } else {
-        logger.info(s"Scan resulted in ${findings.size} findings")
-        findings
-      }
-    }
-
-    runOctoscan ++ runInternal
   }
 
   override def close(): Unit = {

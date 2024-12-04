@@ -1,7 +1,7 @@
 package com.whirlylabs.actionattack.queries
 
-import com.whirlylabs.actionattack.Database
-import com.whirlylabs.actionattack.scan.{ExternalActionsFinding, JavaScriptFinding}
+import com.whirlylabs.actionattack.{Action, ActionSummary, Database}
+import com.whirlylabs.actionattack.scan.{ExternalActionsFinding, JavaScriptFinding, WorkflowAction}
 
 import scala.util.Using
 
@@ -22,7 +22,7 @@ trait ActionSummaryQueries { this: Database =>
     findings.foreach(storeActionSummary(actionId, _))
   }
 
-  def storeActionSummary(actionId: Int, finding: ExternalActionsFinding): Unit = {
+  private def storeActionSummary(actionId: Int, finding: ExternalActionsFinding): Unit = {
     Using.resource(connection.prepareStatement("""
         |INSERT INTO action_summary(valid, validated_by_user, input_key, sink_name, snippet, line, defines_output, action_id) 
         | VALUES(?, ?, ?, ?, ?, ?, ?, ?)
@@ -37,6 +37,23 @@ trait ActionSummaryQueries { this: Database =>
       stmt.setInt(8, actionId)
       stmt.execute()
     }
+  }
+
+  def getSummariesForAction(action: Action): List[ActionSummary] = {
+    Using.resource(connection.prepareStatement("""
+        |SELECT id, valid, validated_by_user, input_key, sink_name, snippet, line, defines_output, action_id
+        |FROM action_summary
+        |INNER JOIN actions as a ON a.id = action_summary.action_id
+        |WHERE a.id = ?
+        |""".stripMargin)) { stmt =>
+      stmt.setInt(1, action.id)
+      ActionSummary.fromResultSet(stmt.executeQuery())
+    }
+  }
+
+  def getSummariesForReferencedActions(actions: List[WorkflowAction]): Map[WorkflowAction, List[ActionSummary]] = {
+    getActionsFromReferencedActions(actions).map { case (wfa, action) => wfa -> getSummariesForAction(action) }.toMap
+
   }
 
 }

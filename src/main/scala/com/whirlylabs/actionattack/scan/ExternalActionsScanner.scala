@@ -53,4 +53,6 @@ object ExternalActionsScanner {
 
 }
 
-case class WorkflowAction(owner: String, name: String, version: String)
+case class WorkflowAction(owner: String, name: String, version: String) {
+  override def toString: String = s"$owner/$name@$version"
+}

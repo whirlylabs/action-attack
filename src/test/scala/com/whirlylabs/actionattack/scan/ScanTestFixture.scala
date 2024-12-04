@@ -1,7 +1,7 @@
 package com.whirlylabs.actionattack.scan
 
-import com.whirlylabs.actionattack.Finding
 import com.whirlylabs.actionattack.scan.yaml.{GitHubActionsWorkflow, YamlScanner, runScans, yamlToGHWorkflow}
+import com.whirlylabs.actionattack.{ActionSummary, Finding}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 import org.scalatest.{BeforeAndAfterAll, BeforeAndAfterEach, Inside}
@@ -18,7 +18,7 @@ trait YamlScanTestFixture(scansToRun: List[YamlScanner] = Nil) extends ScanTestF
       case Success(workflow)  => workflow
     }
 
-  def findingsForWorkflow(code: String): List[Finding] =
-    runScans(workflow(code), scansToRun, "<unknown>", "<unknown>")
+  def findingsForWorkflow(code: String, summaries: Map[WorkflowAction, List[ActionSummary]] = Map.empty): List[Finding] =
+    runScans(workflow(code), scansToRun, "<unknown>", "<unknown>", summaries)
 
 }

@@ -1,6 +1,7 @@
 package com.whirlylabs.actionattack.queries
 
-import com.whirlylabs.actionattack.{Action, Commit, Database, Finding, Repository}
+import com.whirlylabs.actionattack.scan.WorkflowAction
+import com.whirlylabs.actionattack.{Action, ActionSummary, Commit, Database, Finding, Repository}
 
 import scala.util.Using
 
@@ -48,6 +49,23 @@ trait ActionQueries { this: Database =>
       stmt.setString(2, actionType)
       stmt.setInt(3, id)
       stmt.execute()
+    }
+  }
+  
+  def getActionsFromReferencedActions(actions: List[WorkflowAction]): List[(WorkflowAction, Action)] = {
+    actions.flatMap { case w @ WorkflowAction(owner, name, version) =>
+      Using.resource(connection.prepareStatement(
+        """
+          |SELECT id, version, scanned, validated, type, repository_id
+          |FROM actions
+          |INNER JOIN repository AS r ON r.id = actions.repository_id
+          |WHERE actions.version = ? AND r.owner = ? AND r.name = ?
+          |""".stripMargin)) { stmt =>
+        stmt.setString(1, version)
+        stmt.setString(2, owner)
+        stmt.setString(3, name)
+        Action.fromResultSet(stmt.executeQuery()).headOption.map(x => w -> x)
+      }
     }
   }
 

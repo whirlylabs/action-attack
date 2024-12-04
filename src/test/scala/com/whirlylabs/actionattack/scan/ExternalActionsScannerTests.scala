@@ -1,8 +1,8 @@
 package com.whirlylabs.actionattack.scan
 
-import com.whirlylabs.actionattack.scan.yaml.CommandInjectionScanner
+import com.whirlylabs.actionattack.scan.yaml.ExpressionInjectionScanner
 
-class ExternalActionsScannerTests extends YamlScanTestFixture(CommandInjectionScanner() :: Nil) {
+class ExternalActionsScannerTests extends YamlScanTestFixture(ExpressionInjectionScanner() :: Nil) {
 
   "external actions should be retrievable" in {
     val w = workflow("""
