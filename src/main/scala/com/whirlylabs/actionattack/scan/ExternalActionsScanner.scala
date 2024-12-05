@@ -37,7 +37,7 @@ object ExternalActionsScanner {
       case Some(repo @ Repository(_, owner, name)) =>
         logger.info(s"Scanning external action $owner/$name@${action.version}")
 
-        Scanner.cloneRepo(repo, action.version) match {
+        Scanner.cloneRepo(repo, action.version, fetchTags = true) match {
           case Success(targetDir) =>
             try {
               val results = JavaScriptScanner(targetDir).runScan
