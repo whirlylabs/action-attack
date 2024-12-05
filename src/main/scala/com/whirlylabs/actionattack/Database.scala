@@ -1,24 +1,37 @@
 package com.whirlylabs.actionattack
 
-import org.slf4j.LoggerFactory
+import com.whirlylabs.actionattack.queries.{
+  ActionQueries,
+  ActionSummaryQueries,
+  CommitQueries,
+  FindingQueries,
+  RepositoryQueries
+}
+import org.slf4j.{Logger, LoggerFactory}
+import upickle.default.*
 
+import java.net.{URI, URL}
 import java.nio.file.Path
 import java.sql.{Connection, DriverManager, ResultSet, SQLException}
 import scala.collection.mutable
 import scala.compiletime.uninitialized
-import java.net.{URI, URL}
 import scala.util.{Try, Using}
-import upickle.default.*
 
-class Database(location: Option[Path] = None) extends AutoCloseable {
+class Database(location: Option[Path] = None)
+    extends AutoCloseable
+    with FindingQueries
+    with CommitQueries
+    with RepositoryQueries
+    with ActionQueries
+    with ActionSummaryQueries {
 
-  private val logger = LoggerFactory.getLogger(getClass)
+  protected val logger: Logger = LoggerFactory.getLogger(getClass)
 
   private val url = location match {
     case Some(path) => s"jdbc:sqlite:$path"
     case None       => "jdbc:sqlite::memory:"
   }
-  private var connection: Connection = uninitialized
+  protected var connection: Connection = uninitialized
 
   sys.addShutdownHook {
     this.close()
@@ -47,268 +60,123 @@ class Database(location: Option[Path] = None) extends AutoCloseable {
     logger.info("Good-bye!")
   }
 
-  /** Adds a commit to the database with the intent to be scanned.
-    *
-    * @param owner
-    *   the repository owner.
-    * @param name
-    *   the name of the repository.
-    * @param commitHash
-    *   the commit hash.
-    */
-  def queueCommit(owner: String, name: String, commitHash: String): Unit = {
-    createRepoIfNotExists(owner, name).foreach { repositoryId =>
-      Using.resource(
-        connection
-          .prepareStatement("INSERT OR IGNORE INTO commits(sha, scanned, validated, repository_id) VALUES (?,?,?,?)")
-      ) { commitStmt =>
-        commitStmt.setString(1, commitHash)
-        commitStmt.setBoolean(2, false)
-        commitStmt.setBoolean(3, false)
-        commitStmt.setInt(4, repositoryId)
-        commitStmt.execute()
-      }
-    }
-  }
-
-  /** @return
-    *   the next unscanned commit in the repository if one is available.
-    */
-  def getNextCommitToScan: Option[Commit] = {
-    Using.resource(connection.prepareStatement(s"SELECT * FROM commits WHERE scanned = ? LIMIT 1")) { stmt =>
-      stmt.setBoolean(1, false)
-      Using.resource(stmt.executeQuery())(Commit.fromResultSet(_).headOption)
-    }
-  }
-
-  /** @param commit
-    *   the commit object.
-    * @return
-    *   the associated repository if found.
-    */
-  def getRepository(commit: Commit): Option[Repository] = {
-    Using.resource(
-      connection.prepareStatement(
-        "SELECT id, owner, name FROM repository INNER JOIN commits ON repository.id = commits.repository_id WHERE commits.sha = ?"
-      )
-    ) { stmt =>
-      stmt.setString(1, commit.sha)
-      Using.resource(stmt.executeQuery())(Repository.fromResultSet).headOption
-    }
-  }
-
-  /** Store results from a scan.
-    *
-    * @param commit
-    *   the commit that has been scanned.
-    * @param results
-    *   the finding descriptions.
-    */
-  def storeResults(commit: Commit, results: List[Finding]): Unit = {
-    results.foreach { case Finding(_, _, _, _, message, filepath, line, column, columnEnd, snippet, kind) =>
-      Using.resource(connection.prepareStatement("""
-          |INSERT INTO finding(
-          | commit_sha,
-          | valid,
-          | validatedByUser,
-          | message,
-          | filepath,
-          | line,
-          | column,
-          | column_end,
-          | snippet,
-          | kind
-          |) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-          |""".stripMargin)) { stmt =>
-        stmt.setString(1, commit.sha)
-        stmt.setBoolean(2, false)
-        stmt.setBoolean(3, false)
-        stmt.setString(4, message)
-        stmt.setString(5, filepath)
-        stmt.setInt(6, line)
-        stmt.setInt(7, column)
-        stmt.setInt(8, columnEnd)
-        stmt.setString(9, snippet.orNull)
-        stmt.setString(10, kind)
-        stmt.execute()
-      }
-    }
-    Using.resource(connection.prepareStatement("UPDATE commits SET scanned = ? WHERE sha = ?")) { stmt =>
-      stmt.setBoolean(1, true)
-      stmt.setString(2, commit.sha)
-      stmt.execute()
-    }
-  }
-
-  /** Updates finding validated by user via the TUI
-    * @param findingId
-    *   id of the finding that needs to be updated
-    * @param valid
-    *   whether the finding is valid or not (determined by user)
-    */
-  def updateFinding(findingId: Int, valid: Boolean): Unit = {
-    Using.resource(connection.prepareStatement("UPDATE finding SET valid = ?, validatedByUser = ? WHERE id = ?")) {
-      stmt =>
-        stmt.setBoolean(1, valid)
-        stmt.setBoolean(2, true)
-        stmt.setInt(3, findingId)
-        stmt.execute()
-    }
-  }
-
-  def updateCommit(commitSha: String): Unit = {
-    Using.resource(connection.prepareStatement("UPDATE commits SET validated = ? WHERE sha = ?")) { stmt =>
-      stmt.setBoolean(1, true)
-      stmt.setString(2, commitSha)
-      stmt.execute()
-    }
-  }
-
-  /** @return
-    *   all repositories linked to validated and vulnerable commits.
-    */
-  private def getRepositoriesWithValidatedAndVulnerableCommits: List[Repository] = {
-    Using.resource(
-      connection.prepareStatement(
-        "SELECT * FROM repository INNER JOIN commits ON repository.id = commits.repository_id INNER JOIN finding ON finding.commit_sha = commits.sha WHERE commits.validated = ? AND finding.valid = ?"
-      )
-    ) { stmt =>
-      stmt.setBoolean(1, true)
-      stmt.setBoolean(2, true)
-      Using.resource(stmt.executeQuery())(Repository.fromResultSet)
-    }
-  }
-
-  /** @return
-    *   all repositories with unvalidated and vulnerable commits.
-    */
-  private def getRepositoriesWithUnvalidatedAndVulnerableCommits: List[Repository] = {
-    Using.resource(
-      connection
-        .prepareStatement("""SELECT * FROM repository INNER JOIN commits on repository.id = commits.repository_id
-          | INNER JOIN finding on finding.commit_sha = commits.sha
-          | WHERE finding.validatedByUser = ?
-          | AND commits.validated = ?
-          |""".stripMargin)
-    ) { stmt =>
-      stmt.setBoolean(1, false)
-      stmt.setBoolean(2, false)
-      Using.resource(stmt.executeQuery())(Repository.fromResultSet)
-    }
-  }
-
-  /** @return
-    *   all commits linked to validated and vulnerable findings for the given repository.
-    */
-  private def getCommitsWithValidatedAndVulnerableFindings(repository: Repository): List[Commit] = {
-    Using.resource(
-      connection.prepareStatement(
-        "SELECT * FROM repository INNER JOIN commits ON repository.id = commits.repository_id INNER JOIN finding ON finding.commit_sha = commits.sha WHERE repository.id = ? AND commits.validated = ? AND finding.valid = ?"
-      )
-    ) { stmt =>
-      stmt.setInt(1, repository.id)
-      stmt.setBoolean(2, true)
-      stmt.setBoolean(3, true)
-      Using.resource(stmt.executeQuery())(Commit.fromResultSet)
-    }
-  }
-
-  private def getCommitsWithUnvalidatedAndVulnerableFindings(repository: Repository): List[Commit] = {
-    Using.resource(
-      connection.prepareStatement(
-        "SELECT * FROM repository INNER JOIN commits ON repository.id = commits.repository_id INNER JOIN finding ON finding.commit_sha = commits.sha WHERE repository.id = ? AND commits.validated = ? AND finding.validatedByUser = ?"
-      )
-    ) { stmt =>
-      stmt.setInt(1, repository.id)
-      stmt.setBoolean(2, false)
-      stmt.setBoolean(3, false)
-      Using.resource(stmt.executeQuery())(Commit.fromResultSet)
-    }
-  }
-
-  /** @return
-    *   all commits linked to validated and vulnerable findings for the given repository.
-    */
-  private def getVulnerableFindings(commit: Commit): List[Finding] = {
-    if (!commit.validated) {
-      logger.warn(
-        s"${commit.sha} with repository ID ${commit.repositoryId} has not been validated, returning empty result..."
-      )
-      Nil
-    } else {
-      Using.resource(
-        connection.prepareStatement(
-          "SELECT * FROM finding INNER JOIN commits ON finding.commit_sha = commits.sha WHERE finding.valid = ? AND commits.sha = ?"
-        )
-      ) { stmt =>
-        stmt.setBoolean(1, true)
-        stmt.setString(2, commit.sha)
-        Using.resource(stmt.executeQuery())(Finding.fromResultSet)
-      }
-    }
-  }
-
-  private def getUnvalidatedFindings(commit: Commit): List[Finding] = {
-    Using.resource(
-      connection.prepareStatement(
-        "SELECT * FROM finding INNER JOIN commits ON finding.commit_sha = commits.sha WHERE finding.validatedByUser = ? AND commits.sha = ?"
-      )
-    ) { stmt =>
-      stmt.setBoolean(1, false)
-      stmt.setString(2, commit.sha)
-      Using.resource(stmt.executeQuery())(Finding.fromResultSet)
-    }
-  }
-
-  /** @return
-    *   all validated findings that are true positives, mapped by their repository and commit.
-    */
-  def getValidatedFindingsForReport: Map[Repository, Map[Commit, List[Finding]]] = {
-    // Is there a more efficient way to do this? Possibly...
-    getRepositoriesWithValidatedAndVulnerableCommits.map { repository =>
-      repository -> getCommitsWithValidatedAndVulnerableFindings(repository).map { commit =>
-        commit -> getVulnerableFindings(commit)
-      }.toMap
-    }.toMap
-  }
-
-  def getUnvalidatedFindingsForReview: Map[Repository, Map[Commit, List[Finding]]] = {
-    getRepositoriesWithUnvalidatedAndVulnerableCommits.map { repository =>
-      repository -> getCommitsWithUnvalidatedAndVulnerableFindings(repository).map { commit =>
-        commit -> getUnvalidatedFindings(commit)
-      }.toMap
-    }.toMap
-  }
-
-  private def createRepoIfNotExists(owner: String, name: String): Try[Int] = Try {
-    Using.resource(connection.prepareStatement("INSERT OR IGNORE INTO repository(owner, name) VALUES(?, ?)")) { stmt =>
-      stmt.setString(1, owner)
-      stmt.setString(2, name)
-      stmt.execute()
-    }
-
-    Using.resource(connection.prepareStatement("SELECT id FROM repository WHERE owner = ? AND name = ?")) { stmt =>
-      stmt.setString(1, owner)
-      stmt.setString(2, name)
-      Using.resource(stmt.executeQuery()) { results =>
-        if (results.next()) {
-          results.getInt("id")
-        } else {
-          throw new Exception(s"Empty result set for $owner/$name!")
-        }
-      }
-    }
-  }
-
 }
 
+/** A semi-type safe database definition
+  */
 object Database {
 
-  val schema: List[String] = List(
-    "CREATE TABLE IF NOT EXISTS repository (id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT, name TEXT, UNIQUE(owner, name))",
-    "CREATE TABLE IF NOT EXISTS commits (sha TEXT PRIMARY KEY, scanned BOOLEAN, validated BOOLEAN, repository_id INTEGER, FOREIGN KEY(repository_id) REFERENCES repository(id))",
-    "CREATE TABLE IF NOT EXISTS finding (id INTEGER PRIMARY KEY AUTOINCREMENT, commit_sha TEXT, valid BOOLEAN, validatedByUser BOOLEAN, message TEXT, filepath TEXT, line INT, column INT, column_end INT, snippet TEXT, kind TEXT, FOREIGN KEY(commit_sha) REFERENCES commits(commit_sha))"
-  )
+  implicit class ColExt(name: String) {
+    def text: String = s"$name TEXT"
+
+    def int: String = s"$name INTEGER"
+
+    def bool: String = s"$name BOOLEAN"
+  }
+
+  private object Columns {
+    val Column          = "column".int
+    val ColumnEnd       = "column_end".int
+    val CommitSha       = "commit_sha".text
+    val DefinesOutput   = "defines_output".text
+    val FilePath        = "filepath".text
+    val Id              = "id".int
+    val InputKey        = "input_key".text
+    val Kind            = "kind".text
+    val Line            = "line".int
+    val Message         = "message".text
+    val Name            = "name".text
+    val Owner           = "owner".text
+    val Scanned         = "scanned".bool
+    val SinkName        = "sink_name".text
+    val Snippet         = "snippet".text
+    val Sha             = "sha".text
+    val Type            = "type".text
+    val Valid           = "valid".bool
+    val Validated       = "validated".bool
+    val ValidatedByUser = "validated_by_user".bool
+    val Version         = "version".text
+  }
+
+  private object TableNames {
+    val TRepository    = "repository"
+    val TCommits       = "commits"
+    val TFinding       = "finding"
+    val TAction        = "actions"
+    val TActionSummary = "action_summary"
+  }
+
+  import Columns.*
+  import TableNames.*
+
+  private val AUTOINC = "AUTOINCREMENT"
+  private val REFS    = "REFERENCES"
+
+  private def CREATE_TABLE(tableName: String, columns: List[String]) =
+    s"CREATE TABLE IF NOT EXISTS $tableName (${columns.mkString(",")})"
+  private def PK(name: String, autoInc: Boolean = false) = s"$name PRIMARY KEY ${if autoInc then AUTOINC else ""}"
+  private def UNIQ(names: String*)                       = s"UNIQUE(${names.mkString(", ")})"
+  private def FK(name: String, refTable: String, refCol: String) = s"FOREIGN KEY($name) $REFS $refTable($refCol)"
+
+  private object Tables {
+    val RepositoryTable: String =
+      CREATE_TABLE(TRepository, PK(Id, true) :: Owner :: Name :: UNIQ("owner", "name") :: Nil)
+    val CommitsTable: String =
+      CREATE_TABLE(
+        TCommits,
+        PK(Sha) :: Scanned :: Validated :: "repository_id".int :: FK("repository_id", TRepository, "id") :: Nil
+      )
+    val FindingsTable: String =
+      CREATE_TABLE(
+        TFinding,
+        PK(Id, true)
+          :: CommitSha
+          :: Valid
+          :: ValidatedByUser
+          :: Message
+          :: FilePath
+          :: Line
+          :: Column
+          :: ColumnEnd
+          :: Snippet
+          :: Kind
+          :: FK("commit_sha", TCommits, "sha")
+          :: Nil
+      )
+    val ActionTable: String =
+      CREATE_TABLE(
+        TAction,
+        PK(Id, true)
+          :: Version
+          :: Scanned
+          :: Validated
+          :: Type
+          :: "repository_id".int
+          :: FK("repository_id", TRepository, "id")
+          :: UNIQ("version", "repository_id")
+          :: Nil
+      )
+    val ActionSummaryTable: String =
+      CREATE_TABLE(
+        TActionSummary,
+        PK(Id, true)
+          :: Valid
+          :: ValidatedByUser
+          :: InputKey
+          :: SinkName
+          :: Snippet
+          :: Line
+          :: DefinesOutput
+          :: "action_id".int
+          :: FK("action_id", TAction, "id")
+          :: Nil
+      )
+  }
+
+  import Tables.*
+
+  val schema: List[String] =
+    List(RepositoryTable, CommitsTable, FindingsTable, ActionTable, ActionSummaryTable)
 
 }
 
@@ -366,9 +234,9 @@ case class Commit(sha: String, scanned: Boolean, validated: Boolean, repositoryI
   */
 case class Finding(
   id: Int = -1,
-  commitSha: String = "",
+  @upickle.implicits.key("commit_sha") commitSha: String = "",
   valid: Boolean = false,
-  validatedByUser: Boolean = false,
+  @upickle.implicits.key("validated_by_user") validatedByUser: Boolean = false,
   message: String,
   filepath: String,
   line: Int,
@@ -376,6 +244,21 @@ case class Finding(
   @upickle.implicits.key("end_column") columnEnd: Int,
   snippet: Option[String] = None,
   kind: String
+) derives ReadWriter
+
+case class Action(id: Int, version: String, scanned: Boolean, validated: Boolean, `type`: String, repositoryId: Int)
+    derives ReadWriter
+
+case class ActionSummary(
+  id: Int,
+  valid: Boolean,
+  validatedByUser: Boolean,
+  inputKey: String,
+  sinkName: String,
+  snippet: String,
+  line: Int,
+  definesOutput: Boolean,
+  actionId: Int
 ) derives ReadWriter
 
 object Repository {
@@ -425,11 +308,53 @@ object Finding {
           column = rs.getInt("column"),
           columnEnd = rs.getInt("column_end"),
           snippet = Option(rs.getString("snippet")),
-          kind = rs.getString("kind")
+          kind = rs.getString("kind"),
+          validatedByUser = rs.getBoolean("validated_by_user")
         )
       )
     }
     xs.toList
   }
 
+}
+
+object Action {
+  def fromResultSet(rs: ResultSet): List[Action] = {
+    val xs = mutable.ListBuffer.empty[Action]
+    while (rs.next()) {
+      xs.addOne(
+        Action(
+          id = Try(rs.getInt("id")).getOrElse(rs.getInt("actions.id")),
+          version = rs.getString("version"),
+          scanned = rs.getBoolean("scanned"),
+          validated = rs.getBoolean("validated"),
+          `type` = rs.getString("type"),
+          repositoryId = rs.getInt("repository_id")
+        )
+      )
+    }
+    xs.toList
+  }
+}
+
+object ActionSummary {
+  def fromResultSet(rs: ResultSet): List[ActionSummary] = {
+    val xs = mutable.ListBuffer.empty[ActionSummary]
+    while (rs.next()) {
+      xs.addOne(
+        ActionSummary(
+          id = Try(rs.getInt("id")).getOrElse(rs.getInt("action_summary.id")),
+          valid = rs.getBoolean("valid"),
+          validatedByUser = rs.getBoolean("validated_by_user"),
+          inputKey = rs.getString("input_key"),
+          sinkName = rs.getString("sink_name"),
+          snippet = rs.getString("snippet"),
+          line = rs.getInt("line"),
+          definesOutput = rs.getBoolean("defines_output"),
+          actionId = rs.getInt("action_id")
+        )
+      )
+    }
+    xs.toList
+  }
 }

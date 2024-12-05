@@ -1,6 +1,6 @@
 package com.whirlylabs.actionattack.scan
 
-import com.whirlylabs.actionattack.Finding
+import com.whirlylabs.actionattack.{Action, ActionSummary, Finding}
 import ujson.{Arr, Obj, Str}
 import upickle.core.*
 import upickle.default.*
@@ -19,9 +19,10 @@ package object yaml {
     actionsFile: GitHubActionsWorkflow,
     scans: List[YamlScanner] = Nil,
     commitSha: String,
-    filepath: String
+    filepath: String,
+    actionSummaries: Map[WorkflowAction, List[ActionSummary]]
   ): List[Finding] = {
-    scans.flatMap(_.scan(actionsFile, commitSha, filepath))
+    scans.flatMap(_.scan(actionsFile, commitSha, filepath, actionSummaries))
   }
 
   sealed trait ActionNode {

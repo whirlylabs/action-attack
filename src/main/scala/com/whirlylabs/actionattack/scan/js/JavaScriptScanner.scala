@@ -1,5 +1,6 @@
 package com.whirlylabs.actionattack.scan.js
 
+import com.whirlylabs.actionattack.scan.JavaScriptFinding
 import io.joern.dataflowengineoss.language.*
 import io.joern.dataflowengineoss.queryengine.EngineContext
 import io.joern.x2cpg.layers.{Base, CallGraph, ControlFlow, TypeRelations}
@@ -10,9 +11,9 @@ import io.shiftleft.semanticcpg.language.*
 import io.shiftleft.semanticcpg.layers.LayerCreatorContext
 import org.slf4j.LoggerFactory
 import io.joern.x2cpg.X2Cpg.stripQuotes
+
 import java.nio.file.Path
 import scala.util.{Failure, Success}
-
 import io.joern.dataflowengineoss.language.Path as DataFlowPath
 
 class JavaScriptScanner(input: Either[Path, Cpg]) {
