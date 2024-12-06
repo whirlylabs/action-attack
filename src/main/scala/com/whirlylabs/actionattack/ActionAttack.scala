@@ -57,6 +57,29 @@ class ActionAttack(config: Config) {
         } else {
           Report(db).generateFindings()
         }
+      case OperatingMode.Scan =>
+        config.ghToken.orElse {
+          val envFile = Path.of(".env")
+          if (Files.exists(envFile)) {
+            Option(Files.readString(envFile).trim)
+          } else {
+            None
+          }
+        } match {
+          case Some(token) if !token.startsWith("github_pat_") =>
+            logger.error("Invalid GitHub token given or found under `.env`, exiting...")
+            sys.exit(1)
+          case Some(token) =>
+            if (config.owner.isEmpty || config.repo.isEmpty || config.commitSha.isEmpty) {
+              logger.error("GitHub information missing, exiting...")
+              sys.exit(1)
+            } else {
+              Scanner(db).run(Repository(-1, config.owner.get, config.repo.get), config.commitSha)
+            }
+          case None =>
+            logger.error("No GitHub token given or found under `.env`, exiting...")
+            sys.exit(1)
+        }
     }
   }
 
@@ -65,7 +88,10 @@ class ActionAttack(config: Config) {
 case class Config(
   mode: OperatingMode = OperatingMode.Monitor,
   dbPath: Option[Path] = None,
-  ghToken: Option[String] = None
+  ghToken: Option[String] = None,
+  owner: Option[String] = None,
+  repo: Option[String] = None,
+  commitSha: Option[String] = None
 )
 
 sealed trait OperatingMode
@@ -76,4 +102,6 @@ object OperatingMode {
   case object Review extends OperatingMode
 
   case object Report extends OperatingMode
+
+  case object Scan extends OperatingMode
 }

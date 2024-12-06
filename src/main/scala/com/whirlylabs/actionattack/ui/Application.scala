@@ -70,7 +70,6 @@ case class Application(
 }
 
 object Application {
-  private val logger = LoggerFactory.getLogger(getClass)
 
   def apply(
     title: String,

@@ -39,6 +39,21 @@ object Main {
           .action((x, c) => c.copy(ghToken = Option(x)))
       )
 
+    cmd("scan")
+      .text("Scans the provided GitHub repository for potentially vulnerable workflows")
+      .action((_, c) => c.copy(mode = OperatingMode.Scan))
+      .children(
+        opt[String]("owner")
+          .text("The owner of the repository")
+          .action((x, c) => c.copy(owner = Option(x))),
+        opt[String]("repo")
+          .text("The name of the repository")
+          .action((x, c) => c.copy(repo = Option(x))),
+        opt[String]("commitHash")
+          .text("The commit hash to scan")
+          .action((x, c) => c.copy(commitSha = Option(x)))
+      )
+
     cmd("review")
       .text("Presents findings of potentially vulnerable applications for manual review")
       .action((_, c) => c.copy(mode = OperatingMode.Review))
