@@ -228,8 +228,8 @@ package object yaml {
       {
         case x: ujson.Obj =>
           val str            = read[String](x("value"))
-          val interpolations = extractGitHubInterpolations(str)
           val location       = read[Location](x("location"))
+          val interpolations = extractGitHubInterpolations(str, location)
           if interpolations.isEmpty then LocatedString(value = str, location = location)
           else InterpolatedString(value = str, location = location, interpolations = interpolations)
         case x =>
@@ -238,11 +238,24 @@ package object yaml {
     )
   }
 
-  private def extractGitHubInterpolations(input: String): Set[String] = {
+  private def extractGitHubInterpolations(input: String, baseLocation: Location): Set[LocatedString] = {
     // Regular expression to match the content inside ${{ ... }}
     val interpolationPattern = """\$\{\{\s*([^\}]+)\s*\}\}""".r
     // Find all matches and return the interpolations a set
-    interpolationPattern.findAllMatchIn(input).map(_.group(1).trim).toSet
+    input
+      .split("\n")
+      .zipWithIndex
+      .flatMap { case (line, index) =>
+        interpolationPattern
+          .findAllMatchIn(line)
+          .map(matched =>
+            LocatedString(
+              matched.group(1).trim,
+              baseLocation.copy(line = baseLocation.line + index + 2, lineEnd = baseLocation.lineEnd + index + 2)
+            )
+          )
+      }
+      .toSet
   }
 
   case class GitHubActionsWorkflow(
@@ -322,7 +335,8 @@ package object yaml {
     def code: String = value
   }
 
-  case class InterpolatedString(value: String, location: Location, interpolations: Set[String]) extends YamlString {
+  case class InterpolatedString(value: String, location: Location, interpolations: Set[LocatedString])
+      extends YamlString {
     def code: String = value
   }
 

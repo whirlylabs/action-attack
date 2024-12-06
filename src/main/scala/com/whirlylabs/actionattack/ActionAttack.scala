@@ -14,14 +14,7 @@ class ActionAttack(config: Config) {
   def run(): Unit = Using.resource(Database(config.dbPath)) { db =>
     config.mode match {
       case OperatingMode.Monitor =>
-        config.ghToken.orElse {
-          val envFile = Path.of(".env")
-          if (Files.exists(envFile)) {
-            Option(Files.readString(envFile).trim)
-          } else {
-            None
-          }
-        } match {
+        checkToken(config) match {
           case Some(token) if !token.startsWith("github_pat_") =>
             logger.error("Invalid GitHub token given or found under `.env`, exiting...")
             sys.exit(1)
@@ -31,14 +24,7 @@ class ActionAttack(config: Config) {
             sys.exit(1)
         }
       case OperatingMode.Review =>
-        config.ghToken.orElse {
-          val envFile = Path.of(".env")
-          if (Files.exists(envFile)) {
-            Option(Files.readString(envFile).trim)
-          } else {
-            None
-          }
-        } match {
+        checkToken(config) match {
           case Some(token) if !token.startsWith("github_pat_") =>
             logger.error("Invalid GitHub token given or found under `.env`, exiting...")
             sys.exit(1)
@@ -58,14 +44,7 @@ class ActionAttack(config: Config) {
           Report(db).generateFindings()
         }
       case OperatingMode.Scan =>
-        config.ghToken.orElse {
-          val envFile = Path.of(".env")
-          if (Files.exists(envFile)) {
-            Option(Files.readString(envFile).trim)
-          } else {
-            None
-          }
-        } match {
+        checkToken(config) match {
           case Some(token) if !token.startsWith("github_pat_") =>
             logger.error("Invalid GitHub token given or found under `.env`, exiting...")
             sys.exit(1)
@@ -80,6 +59,17 @@ class ActionAttack(config: Config) {
             logger.error("No GitHub token given or found under `.env`, exiting...")
             sys.exit(1)
         }
+    }
+  }
+
+  private def checkToken(config: Config) = {
+    config.ghToken.orElse {
+      val envFile = Path.of(".env")
+      if (Files.exists(envFile)) {
+        Option(Files.readString(envFile).trim)
+      } else {
+        None
+      }
     }
   }
 
