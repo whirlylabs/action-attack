@@ -116,7 +116,10 @@ class ExpressionInjectionTests extends YamlScanTestFixture(ExpressionInjectionSc
 
   private val actionSummaryStubs: Map[WorkflowAction, List[ActionSummary]] = Map.from(
     WorkflowAction("noob", "foo", "v1") ->
-      (ActionSummary(-1, false, false, "issue-title", "exec", "exec(issueTitle)", 8, false, -1) :: Nil) :: Nil
+      (ActionSummary(-1, false, false, "issue-title", "exec", "exec(issueTitle)", 8, false, -1)
+        :: ActionSummary(-1, false, false, "issue-body", "test", "test", 9, true, -1)
+        :: Nil)
+      :: Nil
   )
 
   "a dangerous sink within an external action should produce a finding" in {
@@ -131,6 +134,36 @@ class ExpressionInjectionTests extends YamlScanTestFixture(ExpressionInjectionSc
         |        uses: noob/foo@v1
         |        with:
         |          issue-title: ${{ github.event.issue.title }}
+        |""".stripMargin,
+      actionSummaryStubs
+    )
+
+    inside(findings) { case f1 :: _ =>
+      f1.message shouldBe "'issue-title' may define an argument for `exec` (`exec(issueTitle)`) in noob/foo@v1 at input 'issue-title'"
+      f1.snippet shouldBe Option("issue-title: ${{ github.event.issue.title }}")
+      f1.kind shouldBe "VulnerableActionInjection"
+      f1.line shouldBe 9
+      f1.column shouldBe 23
+    }
+  }
+
+  "a sink referencing a tainted external action output should produce a finding" in {
+    val findings = findingsForWorkflow(
+      """on: issue_comment
+        |
+        |jobs:
+        |  issue-body:
+        |    runs-on: ubuntu-latest
+        |    steps:
+        |      - name: Using dodgy action
+        |        uses: noob/foo@v1
+        |        id: foo
+        |        with:
+        |          issue-body: ${{ github.event.issue.body }}
+        |      - name: Using step output
+        |        id: foo
+        |        run: |
+        |           echo "{{ steps.foo.outputs.test }}"
         |""".stripMargin,
       actionSummaryStubs
     )
