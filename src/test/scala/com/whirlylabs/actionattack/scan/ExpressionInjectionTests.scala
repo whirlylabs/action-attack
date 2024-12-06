@@ -24,10 +24,10 @@ class ExpressionInjectionTests extends YamlScanTestFixture(ExpressionInjectionSc
         |""".stripMargin)
 
     inside(findings) { case f1 :: _ =>
-      f1.message shouldBe "'setup' has a direct command injection at 'echo \"Head ref: ${{ github.head_ref }}\"'"
-      f1.snippet shouldBe Option("echo \"Head ref: ${{ github.head_ref }}\"")
+      f1.message shouldBe "'setup' has a direct command injection at 'github.head_ref'"
+      f1.snippet shouldBe Option("github.head_ref")
       f1.kind shouldBe "DirectInjection"
-      f1.line shouldBe 13
+      f1.line shouldBe 15
       f1.column shouldBe 12
     }
   }
@@ -66,10 +66,10 @@ class ExpressionInjectionTests extends YamlScanTestFixture(ExpressionInjectionSc
         |""".stripMargin)
 
     inside(findings) { case f1 :: _ =>
-      f1.message shouldBe "'echo-body' has a direct command injection at 'echo '${{ github.event.pages.blah.pag[...]'"
-      f1.snippet shouldBe Option("echo '${{ github.event.pages.blah.page_name }}'")
+      f1.message shouldBe "'echo-body' has a direct command injection at 'github.event.pages.blah.page_name'"
+      f1.snippet shouldBe Option("github.event.pages.blah.page_name")
       f1.kind shouldBe "DirectInjection"
-      f1.line shouldBe 6
+      f1.line shouldBe 8
       f1.column shouldBe 12
     }
   }
@@ -104,12 +104,10 @@ class ExpressionInjectionTests extends YamlScanTestFixture(ExpressionInjectionSc
         |""".stripMargin)
 
     inside(findings) { case f1 :: _ =>
-      f1.message shouldBe "'issue-title' has a direct command injection at 'core.setOutput('issue_title', ${{ git[...]'"
-      f1.snippet shouldBe Option(
-        "core.setOutput('issue_title', ${{ github.event.issue.title }}.replaceAll(/\"/g, '\\\\\"'));"
-      )
+      f1.message shouldBe "'issue-title' has a direct command injection at 'github.event.issue.title'"
+      f1.snippet shouldBe Option("github.event.issue.title")
       f1.kind shouldBe "DirectInjection"
-      f1.line shouldBe 10
+      f1.line shouldBe 12
       f1.column shouldBe 18
     }
   }
@@ -169,10 +167,10 @@ class ExpressionInjectionTests extends YamlScanTestFixture(ExpressionInjectionSc
     )
 
     inside(findings) { case f1 :: _ =>
-      f1.message shouldBe "'foo-job' has a tainted input 'issue-body' from noob/foo@v1 which taints output `test` that is used again later: `issue-body: echo \"${{ steps.foo.outpu[...]`"
-      f1.snippet shouldBe Option("issue-body: echo \"${{ steps.foo.outputs.test }}\"")
+      f1.message shouldBe "'foo-job' has a tainted input 'issue-body' from noob/foo@v1 which taints output `test` that is used again later: `issue-body: steps.foo.outputs.test`"
+      f1.snippet shouldBe Option("issue-body: steps.foo.outputs.test")
       f1.kind shouldBe "VulnerableActionInjection"
-      f1.line shouldBe 13
+      f1.line shouldBe 15
       f1.column shouldBe 13
     }
   }
