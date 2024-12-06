@@ -2,7 +2,11 @@ package com.whirlylabs.actionattack.scan.yaml
 import com.whirlylabs.actionattack.scan.WorkflowAction
 import com.whirlylabs.actionattack.{ActionSummary, Finding}
 
-class ExpressionInjectionScanner extends YamlScanner with DirectInjectionLogic with DangerousSinkInExternalActionLogic {
+class ExpressionInjectionScanner
+    extends YamlScanner
+    with DirectInjectionLogic
+    with DangerousSinkInExternalActionLogic
+    with TaintedSinkOutputFromExternalActionLogic {
 
   import ExpressionInjectionScanner.*
   override val kind: String = "expression-injection"
@@ -13,6 +17,11 @@ class ExpressionInjectionScanner extends YamlScanner with DirectInjectionLogic w
     filepath: String,
     actionSummaries: Map[WorkflowAction, List[ActionSummary]]
   ): List[Finding] = {
+    val taintedOutputSources = actionsFile.jobs.flatMap { case (jobName, job) =>
+      vulnerableSummaryOutputUsageToSource(job, jobName, actionSummaries)
+    }
+    implicit val attackerControlledSources: Set[AttackerControlledSource] =
+      ExpressionInjectionScanner.sources ++ taintedOutputSources
     actionsFile.jobs
       .flatMap { case (jobName, job) => findExpressionInjections(jobName, job, actionSummaries) }
       .map(transformFinding(_, commitSha, filepath))
@@ -27,7 +36,7 @@ class ExpressionInjectionScanner extends YamlScanner with DirectInjectionLogic w
       case _                            => actionNode.code.strip()
     }
     val shortenedCode = finding match {
-      case VulnerableActionInjection(_, _, _, summary) =>
+      case VulnerableActionInjection(_, _, _, summary) if !summary.definesOutput =>
         if (summary.snippet.sizeIs > 40) s"${summary.snippet.take(37)}[...]" else summary.snippet
       case _ => if (rawSnippet.sizeIs > 40) s"${rawSnippet.take(37)}[...]" else rawSnippet
     }
@@ -37,7 +46,7 @@ class ExpressionInjectionScanner extends YamlScanner with DirectInjectionLogic w
       case VulnerableActionInjection(jobName, _, action, ActionSummary(_, _, _, inputKey, sinkName, _, _, false, _)) =>
         s"'$jobName' may define an argument for `$sinkName` (`$shortenedCode`) in $action at input '$inputKey'"
       case VulnerableActionInjection(jobName, _, action, ActionSummary(_, _, _, inputKey, sinkName, _, _, true, _)) =>
-        s"'$jobName' may define an output for `$sinkName` (`$shortenedCode`) in $action at input '$inputKey'"
+        s"'$jobName' has a tainted input '$inputKey' from $action which taints output `$sinkName` that is used again later: `$shortenedCode`"
     }
     Finding(
       kind = kind,
@@ -55,7 +64,7 @@ class ExpressionInjectionScanner extends YamlScanner with DirectInjectionLogic w
     jobName: String,
     job: Job,
     actionSummaries: Map[WorkflowAction, List[ActionSummary]]
-  ): List[ExpressionInjectionFinding] = {
+  )(implicit sources: Set[AttackerControlledSource]): List[ExpressionInjectionFinding] = {
     val directInjections  = scanForDirectInjection(job, jobName)
     val vulnerableActions = scanForVulnerableSummaryInputUsage(job, jobName, actionSummaries)
     directInjections ++ vulnerableActions
@@ -72,6 +81,9 @@ object ExpressionInjectionScanner {
   case class ExactLiteralSource(value: String) extends AttackerControlledSource
 
   case class RegexLiteralSource(value: String) extends AttackerControlledSource
+
+  case class TaintedActionsOutputSource(value: String, summary: ActionSummary, action: WorkflowAction)
+      extends AttackerControlledSource
 
   val sources: Set[AttackerControlledSource] = Set(
     ExactLiteralSource("github.event.issue.title"),
