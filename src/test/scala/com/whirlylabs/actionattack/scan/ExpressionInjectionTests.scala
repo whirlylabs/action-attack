@@ -152,7 +152,7 @@ class ExpressionInjectionTests extends YamlScanTestFixture(ExpressionInjectionSc
       """on: issue_comment
         |
         |jobs:
-        |  issue-body:
+        |  foo-job:
         |    runs-on: ubuntu-latest
         |    steps:
         |      - name: Using dodgy action
@@ -163,17 +163,17 @@ class ExpressionInjectionTests extends YamlScanTestFixture(ExpressionInjectionSc
         |      - name: Using step output
         |        id: foo
         |        run: |
-        |           echo "{{ steps.foo.outputs.test }}"
+        |           echo "${{ steps.foo.outputs.test }}"
         |""".stripMargin,
       actionSummaryStubs
     )
 
     inside(findings) { case f1 :: _ =>
-      f1.message shouldBe "'issue-title' may define an argument for `exec` (`exec(issueTitle)`) in noob/foo@v1 at input 'issue-title'"
-      f1.snippet shouldBe Option("issue-title: ${{ github.event.issue.title }}")
+      f1.message shouldBe "'foo-job' has a tainted input 'issue-body' from noob/foo@v1 which taints output `test` that is used again later: `issue-body: echo \"${{ steps.foo.outpu[...]`"
+      f1.snippet shouldBe Option("issue-body: echo \"${{ steps.foo.outputs.test }}\"")
       f1.kind shouldBe "VulnerableActionInjection"
-      f1.line shouldBe 9
-      f1.column shouldBe 23
+      f1.line shouldBe 13
+      f1.column shouldBe 13
     }
   }
 

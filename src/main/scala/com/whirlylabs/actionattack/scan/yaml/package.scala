@@ -197,6 +197,7 @@ package object yaml {
         ujson.Obj(
           "name"     -> write(x.name),
           "uses"     -> write(x.uses),
+          "id"       -> write(x.id),
           "env"      -> write(x.env),
           "run"      -> write(x.run),
           "with"     -> write(x.`with`),
@@ -208,6 +209,7 @@ package object yaml {
           Step(
             name = if map.contains("name") then Option(read[YamlString](x("name"))) else None,
             uses = if map.contains("uses") then Option(read[YamlString](x("uses"))) else None,
+            id = if map.contains("id") then Option(read[YamlString](x("id"))) else None,
             run = if map.contains("run") then Option(read[YamlString](x("run"))) else None,
             env = deserializeMap("env", map),
             `with` = deserializeMap("with", map),
@@ -287,6 +289,7 @@ package object yaml {
   case class Step(
     name: Option[YamlString] = None,
     uses: Option[YamlString] = None,
+    id: Option[YamlString] = None,
     run: Option[YamlString] = None,
     env: Map[String, YamlString] = Map.empty,
     `with`: Map[String, YamlString] = Map.empty,
@@ -295,6 +298,7 @@ package object yaml {
     def code: String =
       s"""name: ${name.getOrElse("<unspecified>")}
          |uses: ${uses.getOrElse("<unspecified>")}
+         |id: ${id.getOrElse("<unspecified>")}
          |env: ... (${`env`.size}
          |run: ${run.getOrElse("<unspecified>")}
          |with: ... (${`with`.size}
