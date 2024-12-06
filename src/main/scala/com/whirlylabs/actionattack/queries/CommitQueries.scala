@@ -62,6 +62,13 @@ trait CommitQueries {
     }
   }
 
+  def getCommitFromSha(commitSha: String): Option[Commit] = {
+    Using.resource(connection.prepareStatement("SELECT * FROM commits WHERE sha = ?")) { stmt =>
+      stmt.setString(1, commitSha)
+      Using.resource(stmt.executeQuery())(Commit.fromResultSet).headOption
+    }
+  }
+
   /** @return
     *   all commits linked to validated and vulnerable findings for the given repository.
     */

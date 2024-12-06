@@ -1,7 +1,6 @@
 package com.whirlylabs.actionattack.ui
 
 import com.whirlylabs.actionattack.{Commit, Database, Finding, Repository}
-import com.whirlylabs.actionattack.ui.Application.logger
 import org.slf4j.LoggerFactory
 import tui.crossterm.CrosstermJni
 import tui.*
@@ -32,27 +31,37 @@ class TUIRunner {
     }
 
     while (true) {
-      terminal.draw(f => UI.draw(f, app))
+      try {
+        terminal.draw(f => UI.draw(f, app))
 
-      if (jni.poll(timeout)) {
-        jni.read() match {
-          case key: tui.crossterm.Event.Key =>
-            key.keyEvent.code match {
-              case char: tui.crossterm.KeyCode.Char => app.on_key(char.c())
-              case _: tui.crossterm.KeyCode.Up      => app.on_up()
-              case _: tui.crossterm.KeyCode.Down    => app.on_down()
-              case _: tui.crossterm.KeyCode.Left    => app.on_left()
-              case _: tui.crossterm.KeyCode.Right   => app.on_right()
-              case _                                => ()
-            }
-          case _ => ()
+        if (jni.poll(timeout)) {
+          jni.read() match {
+            case key: tui.crossterm.Event.Key =>
+              key.keyEvent.code match {
+                case char: tui.crossterm.KeyCode.Char => app.on_key(char.c())
+                case _: tui.crossterm.KeyCode.Up      => app.on_up()
+                case _: tui.crossterm.KeyCode.Down    => app.on_down()
+                case _: tui.crossterm.KeyCode.Left    => app.on_left()
+                case _: tui.crossterm.KeyCode.Right   => app.on_right()
+                case _                                => ()
+              }
+            case _ => ()
+          }
         }
-      }
-      if (elapsed >= tick_rate) {
-        last_tick = Instant.now()
-      }
-      if (app.should_quit) {
-        return
+        if (elapsed >= tick_rate) {
+          last_tick = Instant.now()
+        }
+        if (app.should_quit) {
+          return
+        }
+      } catch {
+        case e: IndexOutOfBoundsException =>
+          // graceful exit
+          logger.info("No review items left, exiting...")
+          return
+        case e: Exception =>
+          logger.error("Error while running TUI", e)
+          return
       }
     }
   }

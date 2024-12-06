@@ -23,6 +23,62 @@ class Scanner(db: Database) extends Runnable, AutoCloseable {
 
   @volatile private var running: Boolean = true
 
+  def run(repo: Repository, commitSha: Option[String]): Unit = {
+    db.queueCommit(repo.owner, repo.name, commitSha.get)
+
+    while (running) {
+      db.getUnscannedActions match {
+        case unscannedAction :: _ =>
+          db.getRepository(unscannedAction.repositoryId) match {
+            case Some(r) =>
+              logger.info(s"Running scan on external action ${r.owner}/${r.name}@${unscannedAction.version}")
+              ExternalActionsScanner.scanExternalAction(db, unscannedAction)
+            case None =>
+              logger.error("No repository associated with next action to scan, marking complete")
+              db.summarizeAction(unscannedAction.id, Nil)
+          }
+        case Nil =>
+          logger.info("Cloning Repo")
+          db.getNextCommitToScan.foreach { commit =>
+            db.getRepository(commit).foreach { repository =>
+              Scanner.cloneRepo(repo, commitSha.get, fetchTags = true) match {
+                case Success(repoPath) =>
+                  logger.info(s"Running scan on $repoPath")
+                  val commit = db.getCommitFromSha(commitSha.get) match {
+                    case Some(c) => c
+                    case None =>
+                      logger.error(s"Commit $commitSha not found in database")
+                      sys.exit(1)
+                  }
+                  try {
+                    val workflowFiles = getWorkflowFiles(repoPath)
+                    val findings      = runScan(repoPath, commit, workflowFiles)
+                    db.storeResults(commit, findings)
+                    logger.info(s"Commit ${commit.sha} scanned")
+                  } catch {
+                    case e: Exception =>
+                      logger.error("Exception occurred while running scan & storing results, marking as complete", e)
+                      db.storeResults(commit, Nil)
+                  } finally {
+                    repoPath.delete()
+                  }
+                case Failure(exception) =>
+                  logger.error(s"Unable to clone $repo", exception)
+                  db.storeResults(commit, Nil)
+              }
+            }
+          }
+      }
+
+      if (db.getNextCommitToScan.isEmpty) {
+        logger.info("No commits left to scan, exiting...")
+        running = false
+      } else {
+        Thread.sleep(1000)
+      }
+    }
+  }
+
   override def run(): Unit = {
     logger.info("Running scanning jobs in the background...")
     while (running) {
