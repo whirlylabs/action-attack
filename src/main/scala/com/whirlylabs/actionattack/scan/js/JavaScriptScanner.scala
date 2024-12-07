@@ -1,6 +1,7 @@
 package com.whirlylabs.actionattack.scan.js
 
 import com.whirlylabs.actionattack.scan.JavaScriptFinding
+import io.joern.dataflowengineoss.DefaultSemantics
 import io.joern.dataflowengineoss.language.*
 import io.joern.dataflowengineoss.queryengine.EngineContext
 import io.joern.x2cpg.layers.{Base, CallGraph, ControlFlow, TypeRelations}
@@ -15,11 +16,22 @@ import io.joern.x2cpg.X2Cpg.stripQuotes
 import java.nio.file.Path
 import scala.util.{Failure, Success}
 import io.joern.dataflowengineoss.language.Path as DataFlowPath
+import io.joern.dataflowengineoss.semanticsloader.{
+  FlowPath,
+  FlowSemantic,
+  FullNameSemantics,
+  PassThroughMapping,
+  Semantics
+}
 
 class JavaScriptScanner(input: Either[Path, Cpg]) {
 
-  private val logger                                = LoggerFactory.getLogger(getClass)
-  private implicit val engineContext: EngineContext = EngineContext()
+  private val logger = LoggerFactory.getLogger(getClass)
+  private val flows = DefaultSemantics.operatorFlows ++ List(
+    FlowSemantic(".*@actions/core.*\\.set(Output|Input)", PassThroughMapping :: Nil, regex = true)
+  )
+  private val semantics                             = FullNameSemantics.fromList(flows)
+  private implicit val engineContext: EngineContext = EngineContext(semantics)
 
   private val cpg = input match {
     case Left(inputDir) =>
@@ -46,12 +58,14 @@ class JavaScriptScanner(input: Either[Path, Cpg]) {
   def runScan: List[JavaScriptFinding] = {
     val flowsToDangerousSinks = dangerousSinks
       .reachableByFlows(source)
+      .passesNot(_.isExpression.inCall.nameExact("stringify")) // A common sanitizer
       .passes(githubInputFetchCall)
       .flatMap(pathToFinding(_, false))
       .toList
 
     val flowsToOutputSinks = gitHubActionsOutputSinks
       .reachableByFlows(source)
+      .passesNot(_.isExpression.inCall.nameExact("stringify"))
       .passes(githubInputFetchCall)
       .flatMap(pathToFinding(_, true))
       .toList
@@ -108,7 +122,8 @@ class JavaScriptScanner(input: Either[Path, Cpg]) {
       .where(_.receiver.fieldAccess.argument(1).isIdentifier.nameExact("fs"))
       .argument
       .where(_.argumentIndexGte(1))
-    val rceCalls = cpg.call.nameExact("exec", "eval").argument(1)
+    val rceCalls =
+      (cpg.call.nameExact("exec").methodFullName(".*child\\_process.*") ++ cpg.call.nameExact("eval")).argument(1)
     val requests =
       cpg.call
         .code(".*http.*")
